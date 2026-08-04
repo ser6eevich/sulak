@@ -55,12 +55,17 @@ export async function loginAction(prevState: { error: string } | null, formData:
     )
   }
 
+  const userPerms = (profile.permissions as Record<string, boolean>) || {}
+  if (password === '123456') {
+    userPerms.mustChangePassword = true
+  }
+
   // Устанавливаем локальную сессионную куку
   await setSessionCookie({
     userId: profile.id,
     email: profile.email,
     role: profile.role,
-    permissions: (profile.permissions as Record<string, boolean>) || {},
+    permissions: userPerms,
   })
 
   // Редирект в нужный раздел

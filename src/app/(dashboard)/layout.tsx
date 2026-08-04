@@ -1,6 +1,7 @@
 import prisma from '@/lib/prisma'
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
+import bcrypt from 'bcryptjs'
 import Sidebar from '@/components/Sidebar'
 import MobileNav from '@/components/MobileNav'
 import ThemeToggle from '@/components/ThemeToggle'
@@ -41,9 +42,18 @@ export default async function DashboardLayout({
     permissions: profileRecord.permissions,
   }
 
-  const mustChangePassword = typeof profileRecord.permissions === 'object' && 
+  const rawHashRes = await prisma.$queryRawUnsafe<{ password_hash: string | null }[]>(
+    `SELECT password_hash FROM public.profiles WHERE id = $1::uuid`,
+    user.id
+  )
+  const passwordHash = rawHashRes?.[0]?.password_hash
+  const isDefaultPassword = passwordHash ? bcrypt.compareSync('123456', passwordHash) : false
+
+  const mustChangePassword = isDefaultPassword || (
+    typeof profileRecord.permissions === 'object' && 
     profileRecord.permissions !== null && 
     (profileRecord.permissions as Record<string, any>).mustChangePassword === true
+  )
 
   return (
     <ThemeProvider>

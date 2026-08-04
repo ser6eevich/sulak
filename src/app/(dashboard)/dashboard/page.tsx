@@ -16,8 +16,13 @@ export default async function DashboardPage() {
     where: { id: user.id },
   })
 
-  // Только админы и владельцы имеют доступ к Главной
-  if (!profile || !profile.isActive || !['admin', 'owner'].includes(profile.role)) {
+  // Доступ имеют админы, владельцы, либо пользователи с включенным разрешением "dashboard"
+  const userPerms = profile && typeof profile.permissions === 'object' && profile.permissions !== null
+    ? (profile.permissions as Record<string, boolean>)
+    : {}
+  const hasAccess = ['admin', 'owner'].includes(profile?.role || '') || userPerms.dashboard === true
+
+  if (!profile || !profile.isActive || !hasAccess) {
     redirect('/unauthorized')
   }
 

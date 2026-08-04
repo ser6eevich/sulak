@@ -1,8 +1,8 @@
 'use client'
 
 import React, { useState, useTransition } from 'react'
-import { changeOwnPasswordAction } from '@/app/login/actions'
-import { Lock, Eye, EyeOff, ShieldAlert, CheckCircle2, RefreshCw } from 'lucide-react'
+import { changeOwnPasswordAction, logoutAction } from '@/app/login/actions'
+import { Lock, Eye, EyeOff, ShieldAlert, CheckCircle2, RefreshCw, LogOut } from 'lucide-react'
 
 interface MustChangePasswordModalProps {
   profileName: string
@@ -48,18 +48,30 @@ export default function MustChangePasswordModal({ profileName }: MustChangePassw
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md select-none animate-fade-in">
       <div className="w-full max-w-md bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-2xl shadow-2xl overflow-hidden p-6 space-y-5 text-left">
         {/* Заголовок */}
-        <div className="flex items-center gap-3 pb-4 border-b border-[var(--border-primary)]">
-          <div className="h-10 w-10 rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20 flex items-center justify-center font-bold shrink-0">
-            <Lock className="h-5 w-5" />
+        <div className="flex items-center justify-between pb-4 border-b border-[var(--border-primary)]">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20 flex items-center justify-center font-bold shrink-0">
+              <Lock className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-[var(--text-primary)]">
+                Обязательная смена пароля
+              </h2>
+              <p className="text-[11px] text-[var(--text-tertiary)]">
+                Здравствуйте, <span className="font-semibold text-[var(--text-primary)]">{profileName}</span>!
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-sm font-bold text-[var(--text-primary)]">
-              Обязательная смена пароля
-            </h2>
-            <p className="text-[11px] text-[var(--text-tertiary)]">
-              Здравствуйте, <span className="font-semibold text-[var(--text-primary)]">{profileName}</span>!
-            </p>
-          </div>
+
+          <form action={logoutAction}>
+            <button
+              type="submit"
+              title="Выйти на страницу входа"
+              className="p-2 rounded-lg text-[var(--danger)] hover:bg-[var(--danger-soft)] transition-colors cursor-pointer"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </form>
         </div>
 
         {/* Описание */}
@@ -69,7 +81,7 @@ export default function MustChangePasswordModal({ profileName }: MustChangePassw
             Установлен временный пароль
           </div>
           <div className="text-[11px] leading-relaxed">
-            Вам был задан временный пароль. Пожалуйста, придумывайте и введите ваш собственный постоянный пароль для входа в систему.
+            Вам был задан временный пароль. Пожалуйста, придумайте и введите ваш собственный постоянный пароль для входа в систему.
           </div>
         </div>
 
@@ -147,6 +159,19 @@ export default function MustChangePasswordModal({ profileName }: MustChangePassw
             )}
           </button>
         </form>
+
+        {/* Альтернативный выход */}
+        <div className="pt-2 border-t border-[var(--border-primary)] flex justify-center">
+          <form action={logoutAction}>
+            <button
+              type="submit"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--danger)] hover:underline cursor-pointer py-1"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              <span>Выйти из аккаунта на страницу входа</span>
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   )

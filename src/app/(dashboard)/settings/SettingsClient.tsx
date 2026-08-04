@@ -80,6 +80,7 @@ const ROLE_LABELS: Record<string, string> = {
 }
 
 const SECTIONS = [
+  { id: 'dashboard', label: 'Обзор платформы (Дашборд)' },
   { id: 'catalog', label: 'Каталог' },
   { id: 'clients', label: 'База клиентов' },
   { id: 'orders', label: 'Заказы' },
