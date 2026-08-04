@@ -26,11 +26,22 @@ jobs:
             set -e
             echo "🚀 Начинаем деплой обновления..."
             
-            # Переходим в папку проекта на сервере (создаём если нет)
+            # Переходим в папку проекта на сервере
             mkdir -p /var/www/sulak
             cd /var/www/sulak
 
-            # Загружаем свежие изменения из Git (или клонируем если папка не привязана)
+            # Безопасная проверка и включение 2GB Swap файла на сервере если RAM ограничена
+            if [ ! -f /swapfile ]; then
+              echo "⚙️ Создаём 2GB Swap файл на сервере для предотвращения OOM SIGABRT/SIGKILL..."
+              fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 2>/dev/null || true
+              chmod 600 /swapfile 2>/dev/null || true
+              mkswap /swapfile 2>/dev/null || true
+              swapon /swapfile 2>/dev/null || true
+            else
+              swapon /swapfile 2>/dev/null || true
+            fi
+
+            # Загружаем свежие изменения из Git
             if [ ! -d ".git" ]; then
               git clone https://github.com/ser6eevich/sulak.git .
             else
@@ -44,8 +55,8 @@ jobs:
             # Применяем миграции базы данных PostgreSQL
             npx prisma migrate deploy || npx prisma db push
 
-            # Сборка Next.js проекта в 1 рабочий поток для экономии RAM сервера (предотвращает OOM SIGKILL)
-            NEXT_TELEMETRY_DISABLED=1 EXPERIMENTAL_CPU_COUNT=1 NODE_OPTIONS="--max-old-space-size=1536" npm run build
+            # Сборка Next.js проекта с выделением 2.5GB виртуальной памяти Node V8
+            NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS="--max-old-space-size=2560" npm run build
 
             # Перезапуск процесса в PM2
             pm2 restart sulak || pm2 start npm --name "sulak" -- run start
