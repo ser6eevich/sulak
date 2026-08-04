@@ -7,7 +7,7 @@ import { normalizePhoneNumber, validatePhoneNumber } from '@/utils/phone'
 import { normalizeAddress } from '@/utils/address'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
-import { sendOrderDeliveredTelegramNotification } from '@/utils/telegram'
+import { sendOrderDeliveredTelegramNotification, getTelegramSettings } from '@/utils/telegram'
 
 // Схемы валидации
 const orderItemSchema = z.object({
@@ -613,12 +613,9 @@ export async function updateOrderImageAction(orderId: string, imageUrl: string |
 
     const oldData = { imageUrl: order.imageUrl }
 
-    // Определяем новое значение imageUrl
     let newImageUrlValue: string | null
 
     if (subOrderIndex !== null && subOrderIndex !== undefined) {
-      // Режим: обновляем фото конкретного подзаказа
-      // imageUrl хранится как JSON вида {"0": "url", "1": "url"}
       let imagesMap: Record<string, string> = {}
 
       if (order.imageUrl) {
@@ -627,7 +624,6 @@ export async function updateOrderImageAction(orderId: string, imageUrl: string |
           if (typeof parsed === 'object' && !Array.isArray(parsed)) {
             imagesMap = parsed
           }
-          // Если это просто строка URL (старый формат) — оставляем её под ключом "0"
         } catch {
           imagesMap = { '0': order.imageUrl }
         }
@@ -640,10 +636,8 @@ export async function updateOrderImageAction(orderId: string, imageUrl: string |
         imagesMap[key] = imageUrl
       }
 
-      // Если пустой объект — null, иначе JSON
       newImageUrlValue = Object.keys(imagesMap).length > 0 ? JSON.stringify(imagesMap) : null
     } else {
-      // Режим: обновляем главное фото заказа (устаревший режим)
       newImageUrlValue = imageUrl
     }
 
@@ -679,12 +673,14 @@ export async function updateOrderImageAction(orderId: string, imageUrl: string |
 
 export async function sendTelegramNotification(orderId: string) {
   try {
-    const token = process.env.TELEGRAM_BOT_TOKEN
-    const chatId = process.env.TELEGRAM_CHAT_ID
+    const { chatId, token, siteUrl, topics } = await getTelegramSettings()
     if (!token || !chatId) {
-      console.warn('Telegram уведомления не настроены: отсутствует TELEGRAM_BOT_TOKEN или TELEGRAM_CHAT_ID в .env.local')
+      console.warn('Telegram уведомления не настроены: отсутствует TELEGRAM_BOT_TOKEN или TELEGRAM_CHAT_ID')
       return
     }
+
+    const targetTopic = topics?.new_orders || topics?.general
+    const messageThreadId = (targetTopic && !isNaN(parseInt(targetTopic, 10))) ? parseInt(targetTopic, 10) : undefined
 
     const order = await prisma.order.findUnique({
       where: { id: orderId },
@@ -713,7 +709,6 @@ export async function sendTelegramNotification(orderId: string) {
     const dateObj = new Date(order.createdAt)
     const formattedDate = `${String(dateObj.getDate()).padStart(2, '0')}.${String(dateObj.getMonth() + 1).padStart(2, '0')}`
 
-    // Группируем позиции по subOrderIndex
     const groupedItemsMap = new Map<number, typeof order.items>()
     for (const item of order.items) {
       if (!groupedItemsMap.has(item.subOrderIndex)) {
@@ -728,6 +723,7 @@ export async function sendTelegramNotification(orderId: string) {
       const subTotal = subItems.reduce((sum, it) => sum + (it.unitPrice / 100) * it.quantity, 0)
       itemsPricesParts.push(subTotal.toLocaleString('ru-RU'))
     }
+
     const itemsPrices = itemsPricesParts.join(' + ')
     const phones = [order.client.primaryPhone, order.client.additionalPhone].filter(Boolean).join(', ')
 
@@ -735,8 +731,8 @@ export async function sendTelegramNotification(orderId: string) {
     const grandTotalText = (grandTotalCents / 100).toLocaleString('ru-RU')
     const commentLine = order.comment ? `\n\n💬 <i>${order.comment}</i>` : ''
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://sulak.ru'
-    const orderLink = `${appUrl}/orders?id=${order.number || order.id}`
+    const appBaseUrl = siteUrl || process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://sulak.ru'
+    const orderLink = `${appBaseUrl.replace(/\/$/, '')}/orders?id=${order.number || order.id}`
 
     // Формируем финансовую сводку
     const financialParts: string[] = []
@@ -850,13 +846,6 @@ ${priceBlock}${commentLine}`
       }
     }
 
-    /**
-     * Умная отправка фото в Telegram:
-     * — Если путь локальный (/uploads/...) → читаем файл с диска, загружаем напрямую (multipart)
-     * — Если URL удалённый (https://...) → передаём URL строкой
-     * Это нужно потому что localhost недоступен из интернета, а Telegram Bot API
-     * не может скачать фото с локального адреса.
-     */
     const path = await import('path')
     const fs = await import('fs')
 
@@ -865,7 +854,6 @@ ${priceBlock}${commentLine}`
 
     const readLocalFile = (url: string): Buffer | null => {
       try {
-        // /uploads/file.jpg → <cwd>/public/uploads/file.jpg
         const relative = url.startsWith('/uploads/')
           ? `public${url}`
           : url.startsWith('/public/')
@@ -884,16 +872,9 @@ ${priceBlock}${commentLine}`
     const localPhotos  = photoUrls.filter(u => isLocalPath(u))
     const remotePhotos = photoUrls.filter(u => u.startsWith('http://') || u.startsWith('https://'))
 
-    // Нормализуем удалённые URL (на случай если вдруг нет хоста)
-    const appBase = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || '').replace(/\/$/, '')
-    const allRemote = remotePhotos // уже полные URL
+    const allRemote = remotePhotos
 
     if (localPhotos.length > 0) {
-      // ── Отправка локальных файлов через multipart upload ──
-      // Telegram не может скачать localhost, поэтому читаем файлы с диска.
-      // Для нескольких фото используем sendMediaGroup с attach:// — все фото придут одним альбомом.
-
-      // Собираем только те файлы, которые реально существуют на диске
       const localBuffers: { buf: Buffer; ext: string; fieldName: string }[] = []
       for (let i = 0; i < localPhotos.length; i++) {
         const buf = readLocalFile(localPhotos[i])
@@ -908,6 +889,7 @@ ${priceBlock}${commentLine}`
         const { buf, ext, fieldName } = localBuffers[0]
         const form = new FormData()
         form.append('chat_id', chatId)
+        if (messageThreadId) form.append('message_thread_id', String(messageThreadId))
         form.append('caption', textMessage)
         form.append('parse_mode', 'HTML')
         form.append('reply_markup', JSON.stringify(replyMarkup))
@@ -923,16 +905,15 @@ ${priceBlock}${commentLine}`
         // ── Несколько фото → sendMediaGroup с attach:// — один альбом в одном сообщении ──
         const form = new FormData()
         form.append('chat_id', chatId)
+        if (messageThreadId) form.append('message_thread_id', String(messageThreadId))
 
         const media = localBuffers.map(({ ext, fieldName }, idx) => ({
           type: 'photo',
           media: `attach://${fieldName}`,
-          // Текст заказа прикрепляем к первому фото
           ...(idx === 0 ? { caption: textMessage, parse_mode: 'HTML' } : {}),
         }))
         form.append('media', JSON.stringify(media))
 
-        // Прикрепляем каждый файл под своим fieldName
         for (const { buf, ext, fieldName } of localBuffers) {
           form.append(fieldName, new Blob([new Uint8Array(buf)], { type: `image/${ext}` }), `${fieldName}.${ext}`)
         }
@@ -955,10 +936,12 @@ ${priceBlock}${commentLine}`
         media: photoUrl,
         ...(idx === 0 ? { caption: textMessage, parse_mode: 'HTML' } : {})
       }))
+      const payload: any = { chat_id: chatId, media }
+      if (messageThreadId) payload.message_thread_id = messageThreadId
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, media })
+        body: JSON.stringify(payload)
       })
       if (!res.ok) {
         const errText = await res.text()
@@ -967,16 +950,18 @@ ${priceBlock}${commentLine}`
     } else if (allRemote.length === 1) {
       // ── Одно удалённое фото → sendPhoto по URL ──
       const url = `https://api.telegram.org/bot${token}/sendPhoto`
+      const payload: any = {
+        chat_id: chatId,
+        photo: allRemote[0],
+        caption: textMessage,
+        parse_mode: 'HTML',
+        reply_markup: replyMarkup
+      }
+      if (messageThreadId) payload.message_thread_id = messageThreadId
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          photo: allRemote[0],
-          caption: textMessage,
-          parse_mode: 'HTML',
-          reply_markup: replyMarkup
-        })
+        body: JSON.stringify(payload)
       })
       if (!res.ok) {
         const errText = await res.text()
@@ -985,15 +970,17 @@ ${priceBlock}${commentLine}`
     } else {
       // ── Нет фото → отправляем только текст ──
       const url = `https://api.telegram.org/bot${token}/sendMessage`
+      const payload: any = {
+        chat_id: chatId,
+        text: textMessage,
+        parse_mode: 'HTML',
+        reply_markup: replyMarkup
+      }
+      if (messageThreadId) payload.message_thread_id = messageThreadId
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: textMessage,
-          parse_mode: 'HTML',
-          reply_markup: replyMarkup
-        })
+        body: JSON.stringify(payload)
       })
       if (!res.ok) {
         const errText = await res.text()
@@ -1004,6 +991,7 @@ ${priceBlock}${commentLine}`
     console.error('Ошибка в sendTelegramNotification:', err)
   }
 }
+
 
 /**
  * Пакетная отметка заказов как "Доставлен" по массиву ID заказов с опциональной датой доставки
