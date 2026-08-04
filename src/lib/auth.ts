@@ -11,6 +11,7 @@ export interface SessionPayload {
   userId: string
   email: string
   role: string
+  permissions?: Record<string, boolean>
 }
 
 /**
@@ -35,6 +36,7 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
         userId: payload.userId,
         email: payload.email as string,
         role: payload.role as string,
+        permissions: (payload.permissions as Record<string, boolean>) || {},
       }
     }
     return null

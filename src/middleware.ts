@@ -36,51 +36,52 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL(getDefaultRoute(session.role), request.url))
   }
 
-  // 3. Быстрая проверка прав по роли из подписанного JWT токена
+  // 3. Проверка прав по роли и индивидуальным разрешениям (permissions)
   const role = session.role
+  const perms = session.permissions || {}
 
   if (path.startsWith('/payroll')) {
-    const hasAccess = ['admin', 'owner'].includes(role)
+    const hasAccess = ['admin', 'owner'].includes(role) || perms.payroll === true
     if (!hasAccess) return NextResponse.redirect(new URL('/unauthorized', request.url))
   }
 
   if (path.startsWith('/managers')) {
-    const hasAccess = ['admin', 'owner'].includes(role)
+    const hasAccess = ['admin', 'owner'].includes(role) || perms.managers === true
     if (!hasAccess) return NextResponse.redirect(new URL('/unauthorized', request.url))
   }
 
   if (path.startsWith('/production')) {
-    const hasAccess = ['production', 'admin', 'owner'].includes(role)
+    const hasAccess = ['production', 'admin', 'owner'].includes(role) || perms.production === true
     if (!hasAccess) return NextResponse.redirect(new URL('/unauthorized', request.url))
   }
 
   if (path.startsWith('/warehouse')) {
-    const hasAccess = ['warehouse', 'admin', 'owner'].includes(role)
+    const hasAccess = ['warehouse', 'admin', 'owner'].includes(role) || perms.warehouse === true
     if (!hasAccess) return NextResponse.redirect(new URL('/unauthorized', request.url))
   }
 
   if (path.startsWith('/logistician')) {
-    const hasAccess = ['logistician', 'admin', 'owner'].includes(role)
+    const hasAccess = ['logistician', 'admin', 'owner'].includes(role) || perms.logistician === true
     if (!hasAccess) return NextResponse.redirect(new URL('/unauthorized', request.url))
   }
 
   if (path.startsWith('/drivers')) {
-    const hasAccess = ['logistician', 'manager', 'admin', 'owner'].includes(role)
+    const hasAccess = ['logistician', 'manager', 'admin', 'owner'].includes(role) || perms.drivers === true
     if (!hasAccess) return NextResponse.redirect(new URL('/unauthorized', request.url))
   }
 
   if (path.startsWith('/clients')) {
-    const hasAccess = ['admin', 'owner', 'manager'].includes(role)
+    const hasAccess = ['admin', 'owner', 'manager'].includes(role) || perms.clients === true
     if (!hasAccess) return NextResponse.redirect(new URL('/unauthorized', request.url))
   }
 
   if (path.startsWith('/catalog')) {
-    const hasAccess = ['admin', 'owner', 'manager', 'production', 'warehouse', 'logistician', 'driver'].includes(role)
+    const hasAccess = ['admin', 'owner', 'manager', 'production', 'warehouse', 'logistician', 'driver'].includes(role) || perms.catalog === true
     if (!hasAccess) return NextResponse.redirect(new URL('/unauthorized', request.url))
   }
 
   if (path.startsWith('/orders')) {
-    const hasAccess = ['admin', 'owner', 'manager', 'production', 'warehouse', 'logistician', 'driver'].includes(role)
+    const hasAccess = ['admin', 'owner', 'manager', 'production', 'warehouse', 'logistician', 'driver'].includes(role) || perms.orders === true
     if (!hasAccess) return NextResponse.redirect(new URL('/unauthorized', request.url))
   }
 

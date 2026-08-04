@@ -60,6 +60,7 @@ export async function loginAction(prevState: { error: string } | null, formData:
     userId: profile.id,
     email: profile.email,
     role: profile.role,
+    permissions: (profile.permissions as Record<string, boolean>) || {},
   })
 
   // Редирект в нужный раздел
