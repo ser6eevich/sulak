@@ -18,7 +18,8 @@ import {
   Settings,
   ChevronRight,
   PanelLeftClose,
-  PanelLeft
+  PanelLeft,
+  FileText
 } from 'lucide-react'
 
 interface SidebarProps {
@@ -100,6 +101,13 @@ const menuItems: MenuItem[] = [
     href: '/payroll',
     icon: DollarSign,
     roles: ['admin', 'owner'],
+    category: 'admin',
+  },
+  {
+    title: 'Дневной отчёт',
+    href: '/analytics/daily-report',
+    icon: FileText,
+    roles: ['admin', 'owner', 'manager'],
     category: 'admin',
   },
   {

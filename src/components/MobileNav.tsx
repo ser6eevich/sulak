@@ -20,7 +20,8 @@ import {
   X,
   LayoutDashboard,
   Shield,
-  ChevronRight
+  ChevronRight,
+  FileText
 } from 'lucide-react'
 
 interface MobileNavProps {
@@ -51,6 +52,7 @@ const menuItems: MenuItem[] = [
   { title: 'Логистика', href: '/logistician/dashboard', icon: Truck, roles: ['logistician', 'admin', 'owner', 'manager'], category: 'operations' },
   { title: 'Водители', href: '/drivers', icon: Contact, roles: ['logistician', 'admin', 'owner', 'manager'], category: 'operations' },
   { title: 'Зарплата', href: '/payroll', icon: DollarSign, roles: ['admin', 'owner'], category: 'admin' },
+  { title: 'Отчёт за день', href: '/analytics/daily-report', icon: FileText, roles: ['admin', 'owner', 'manager'], category: 'admin' },
   { title: 'Менеджеры', href: '/managers', icon: Users, roles: ['admin', 'owner'], category: 'admin' },
   { title: 'Настройки', href: '/settings', icon: Settings, roles: ['admin', 'owner'], category: 'admin' },
 ]

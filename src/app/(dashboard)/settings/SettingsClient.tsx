@@ -2,6 +2,7 @@
 
 import React, { useState, useTransition } from 'react'
 import { saveTelegramSettingsAction, testTelegramNotificationAction } from './actions'
+import { saveAmoCrmCredentialsAction } from '@/app/(dashboard)/analytics/daily-report/actions'
 import { 
   createUserAction, 
   updateUserRoleAction, 
@@ -33,7 +34,8 @@ import {
   Unlock,
   Settings as SettingsIcon,
   Eye,
-  EyeOff
+  EyeOff,
+  BarChart3
 } from 'lucide-react'
 
 interface Profile {
@@ -123,7 +125,16 @@ export default function SettingsClient({
   currentUserId = '',
   userRole = 'admin'
 }: SettingsClientProps) {
-  const [activeTab, setActiveTab] = useState<'telegram' | 'memo' | 'team'>('telegram')
+  const [activeTab, setActiveTab] = useState<'telegram' | 'memo' | 'team' | 'amocrm'>('telegram')
+
+  // amoCRM интеграция
+  const [amoSubdomain, setAmoSubdomain] = useState('')
+  const [amoClientId, setAmoClientId] = useState('')
+  const [amoClientSecret, setAmoClientSecret] = useState('')
+  const [amoAccessToken, setAmoAccessToken] = useState('')
+  const [amoRefreshToken, setAmoRefreshToken] = useState('')
+  const [amoSaveMsg, setAmoSaveMsg] = useState('')
+  const [amoSaveLoading, setAmoSaveLoading] = useState(false)
 
   // Настройки Telegram
   const [chatId, setChatId] = useState(initialChatId)
@@ -347,6 +358,18 @@ export default function SettingsClient({
         >
           <BookOpen className="h-4 w-4 text-[var(--accent-primary)]" />
           Памятка по уведомлениям
+        </button>
+
+        <button
+          onClick={() => setActiveTab('amocrm')}
+          className={`flex items-center gap-2 px-5 py-3 text-xs font-semibold uppercase tracking-wider rounded-t-md border-b-2 transition-all cursor-pointer ${
+            activeTab === 'amocrm'
+              ? 'border-[var(--accent-primary)] text-[var(--accent-primary)] bg-[var(--accent-soft)]/30 font-bold'
+              : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+          }`}
+        >
+          <BarChart3 className="h-4 w-4 text-[var(--accent-primary)]" />
+          amoCRM
         </button>
 
         <button
@@ -706,6 +729,129 @@ export default function SettingsClient({
       )}
 
       {/* Вкладка 3: Управление командой (Перенесенный блок с Обзора Платформы + Менеджеры) */}
+      {/* Вкладка amoCRM */}
+      {activeTab === 'amocrm' && (
+        <div className="space-y-6">
+          <div className="erp-card p-6 space-y-6">
+            <div className="flex items-center gap-3 pb-4 border-b border-[var(--border-primary)]">
+              <div className="h-9 w-9 rounded-md bg-[var(--accent-soft)] text-[var(--accent-primary)] flex items-center justify-center">
+                <BarChart3 className="h-4.5 w-4.5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-[var(--text-primary)]">Интеграция с amoCRM</h2>
+                <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                  Ключи OAuth2 для автоматического сбора аналитики и формирования дневных отчётов
+                </p>
+              </div>
+            </div>
+
+            {amoSaveMsg && (
+              <div className={`p-3 rounded-xl text-xs font-medium ${amoSaveMsg.startsWith('Ошибка') ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-[var(--success-soft)] text-[var(--success)]'}`}>
+                {amoSaveMsg}
+              </div>
+            )}
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault()
+                setAmoSaveLoading(true)
+                setAmoSaveMsg('')
+                const res = await saveAmoCrmCredentialsAction({
+                  subdomain: amoSubdomain,
+                  clientId: amoClientId,
+                  clientSecret: amoClientSecret,
+                  accessToken: amoAccessToken,
+                  refreshToken: amoRefreshToken,
+                })
+                setAmoSaveLoading(false)
+                setAmoSaveMsg(res.error ? `Ошибка: ${res.error}` : 'Настройки amoCRM сохранены!')
+              }}
+              className="space-y-4"
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-[var(--text-primary)]">Поддомен <span className="text-[var(--danger)]">*</span></label>
+                  <p className="text-[10px] text-[var(--text-tertiary)]">Ваш поддомен amoCRM, например: <code className="font-mono">mycompany</code> (без .amocrm.ru)</p>
+                  <input
+                    type="text"
+                    value={amoSubdomain}
+                    onChange={e => setAmoSubdomain(e.target.value)}
+                    placeholder="mycompany"
+                    className="erp-input w-full font-mono text-xs"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-[var(--text-primary)]">Client ID <span className="text-[var(--danger)]">*</span></label>
+                  <p className="text-[10px] text-[var(--text-tertiary)]">ID интеграции из Настройки → Интеграции → ваша интеграция</p>
+                  <input
+                    type="text"
+                    value={amoClientId}
+                    onChange={e => setAmoClientId(e.target.value)}
+                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                    className="erp-input w-full font-mono text-xs"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-[var(--text-primary)]">Client Secret <span className="text-[var(--danger)]">*</span></label>
+                  <p className="text-[10px] text-[var(--text-tertiary)]">Секрет интеграции из amoCRM</p>
+                  <input
+                    type="password"
+                    value={amoClientSecret}
+                    onChange={e => setAmoClientSecret(e.target.value)}
+                    placeholder="••••••••••••••••"
+                    className="erp-input w-full font-mono text-xs"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block text-xs font-semibold text-[var(--text-primary)]">Access Token <span className="text-[var(--danger)]">*</span></label>
+                  <p className="text-[10px] text-[var(--text-tertiary)]">Токен доступа. Автоматически обновляется через Refresh Token</p>
+                  <input
+                    type="password"
+                    value={amoAccessToken}
+                    onChange={e => setAmoAccessToken(e.target.value)}
+                    placeholder="eyJ0eXAiOiJKV1QiLCJhbGci..."
+                    className="erp-input w-full font-mono text-xs"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-1 sm:col-span-2">
+                  <label className="block text-xs font-semibold text-[var(--text-primary)]">Refresh Token</label>
+                  <p className="text-[10px] text-[var(--text-tertiary)]">Токен обновления. Рекомендуется заполнить для автоматического продления Access Token</p>
+                  <input
+                    type="password"
+                    value={amoRefreshToken}
+                    onChange={e => setAmoRefreshToken(e.target.value)}
+                    placeholder="eyJ0eXAiOiJKV1QiLCJhbGci..."
+                    className="erp-input w-full font-mono text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  type="submit"
+                  disabled={amoSaveLoading}
+                  className="erp-button-primary text-xs flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {amoSaveLoading ? (
+                    <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Сохранение...</>
+                  ) : (
+                    <><Save className="h-3.5 w-3.5" /> Сохранить настройки amoCRM</>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'team' && (
         <div className="space-y-6">
           {/* Блок 1: Управление сотрудниками, ролями и доступами к разделам (Из Обзора Платформы) */}
