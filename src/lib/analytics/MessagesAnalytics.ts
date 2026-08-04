@@ -48,35 +48,12 @@ export class MessagesAnalytics {
       }
     }
 
-    // 2. Ищем события изменения кастомных полей SalesBot: "Есть обращение (новые)" и "Есть обращение (повторные)"
-    const newMsgFieldEvents = events.filter((ev) => {
-      const fieldStr = getCustomFieldName(ev).toLowerCase()
-      return fieldStr.includes('обращение') && fieldStr.includes('новые')
-    })
-
-    const repeatMsgFieldEvents = events.filter((ev) => {
-      const fieldStr = getCustomFieldName(ev).toLowerCase()
-      return fieldStr.includes('обращение') && (fieldStr.includes('повтор') || fieldStr.includes('повторные'))
-    })
-
-    // Если есть записи полей SalesBot — утилизируем точные цифры бота
-    if (newMsgFieldEvents.length > 0 || repeatMsgFieldEvents.length > 0) {
-      return {
-        newMessages: newMsgFieldEvents.length,
-        repeatMessages: repeatMsgFieldEvents.length,
-        newIncoming: newMsgFieldEvents.length,
-        totalEventsCount: newMsgFieldEvents.length + repeatMsgFieldEvents.length,
-      }
-    }
-
-    // Фолбэк: анализ классических чат-событий если SalesBot не заполнял поля
-    const incomingChatEvents = events.filter((ev) => ev.type === 'incoming_chat_message')
-
+    // Собираем ID сущностей для получения дат их создания в amoCRM
     const leadIds: number[] = []
     const contactIds: number[] = []
     const talkIds: number[] = []
 
-    incomingChatEvents.forEach((ev) => {
+    events.forEach((ev) => {
       if (!ev.entity_id) return
       if (ev.entity_type === 'lead') leadIds.push(ev.entity_id)
       else if (ev.entity_type === 'contact') contactIds.push(ev.entity_id)
@@ -94,23 +71,48 @@ export class MessagesAnalytics {
     const talkMap = new Map<number, AmoTalk>()
     for (const t of talksById) if (t.id) talkMap.set(t.id, t)
 
+    const getCreatedAt = (ev: AmoEvent): number | undefined => {
+      if (ev.entity_type === 'lead') return leadMap.get(ev.entity_id)?.created_at
+      if (ev.entity_type === 'contact') return contactMap.get(ev.entity_id)?.created_at
+      if (ev.entity_type === 'talk') return talkMap.get(ev.entity_id)?.created_at
+      return (
+        leadMap.get(ev.entity_id)?.created_at ||
+        contactMap.get(ev.entity_id)?.created_at ||
+        talkMap.get(ev.entity_id)?.created_at
+      )
+    }
+
+    // 2. Поле SalesBot "Есть обращение (новые)" — учитываем только сделки/клиентов, СОЗДАННЫХ СЕГОДНЯ
+    const newMsgFieldEvents = events.filter((ev) => {
+      const fieldStr = getCustomFieldName(ev).toLowerCase()
+      if (!fieldStr.includes('обращение') || !fieldStr.includes('новые')) return false
+      const createdAt = getCreatedAt(ev)
+      return !createdAt || (createdAt >= fromTimestamp && createdAt <= toTimestamp)
+    })
+
+    // 3. Поле SalesBot "Есть обращение (повторные)"
+    const repeatMsgFieldEvents = events.filter((ev) => {
+      const fieldStr = getCustomFieldName(ev).toLowerCase()
+      return fieldStr.includes('обращение') && (fieldStr.includes('повтор') || fieldStr.includes('повторные'))
+    })
+
+    if (newMsgFieldEvents.length > 0 || repeatMsgFieldEvents.length > 0) {
+      return {
+        newMessages: newMsgFieldEvents.length,
+        repeatMessages: repeatMsgFieldEvents.length,
+        newIncoming: newMsgFieldEvents.length,
+        totalEventsCount: newMsgFieldEvents.length + repeatMsgFieldEvents.length,
+      }
+    }
+
+    // Фолбэк на классические чат-события
+    const incomingChatEvents = events.filter((ev) => ev.type === 'incoming_chat_message')
     const newContacts = new Set<number>()
     const repeatContacts = new Set<number>()
 
     for (const ev of incomingChatEvents) {
       const entityId = ev.entity_id
-      let createdAtTimestamp: number | undefined
-
-      if (ev.entity_type === 'lead') createdAtTimestamp = leadMap.get(entityId)?.created_at
-      else if (ev.entity_type === 'contact') createdAtTimestamp = contactMap.get(entityId)?.created_at
-      else if (ev.entity_type === 'talk') createdAtTimestamp = talkMap.get(entityId)?.created_at
-
-      if (!createdAtTimestamp) {
-        createdAtTimestamp =
-          talkMap.get(entityId)?.created_at ||
-          leadMap.get(entityId)?.created_at ||
-          contactMap.get(entityId)?.created_at
-      }
+      const createdAtTimestamp = getCreatedAt(ev)
 
       if (createdAtTimestamp) {
         if (createdAtTimestamp >= fromTimestamp && createdAtTimestamp <= toTimestamp) {

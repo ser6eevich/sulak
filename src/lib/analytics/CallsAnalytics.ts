@@ -32,18 +32,25 @@ export class CallsAnalytics {
     const toTimestamp = Math.floor(endOfDay.getTime() / 1000)
 
     try {
-      // 1. Загружаем все события дня из /api/v4/events
-      // 2. Загружаем звонки из /api/v4/calls
       const [allEvents, callsCreated, callsUpdated] = await Promise.all([
         amoClient.getEvents(fromTimestamp, toTimestamp, []),
         amoClient.getCalls(fromTimestamp, toTimestamp),
         amoClient.getCallsByUpdatedAt(fromTimestamp, toTimestamp),
       ])
 
-      // Проверяем поле SalesBot: "Есть звонок (новые)"
+      const leadIds = (allEvents || [])
+        .filter((ev) => ev.entity_id && ev.entity_type === 'lead')
+        .map((ev) => ev.entity_id)
+
+      const leads = await amoClient.getLeadsByIds(leadIds)
+      const leadMap = new Map(leads.map((l) => [l.id, l]))
+
+      // Поле SalesBot "Есть звонок (новые)" — фильтруем по дате создания сделки (Созданы: сегодня)
       const callFieldEvents = (allEvents || []).filter((ev) => {
         const fieldStr = getCustomFieldName(ev).toLowerCase()
-        return fieldStr.includes('звонок') && fieldStr.includes('новые')
+        if (!fieldStr.includes('звонок') || !fieldStr.includes('новые')) return false
+        const lead = leadMap.get(ev.entity_id)
+        return !lead || (lead.created_at >= fromTimestamp && lead.created_at <= toTimestamp)
       })
 
       if (callFieldEvents.length > 0) {
@@ -74,30 +81,6 @@ export class CallsAnalytics {
           if (isIncoming) incomingCount++
           if (isMissed) missedCount++
         })
-      }
-
-      const callEvents = (allEvents || []).filter((ev) => {
-        const type = String(ev.type || '').toLowerCase()
-        return (
-          type.includes('call') ||
-          type.includes('phone') ||
-          type === 'call_in' ||
-          type === 'incoming_call'
-        )
-      })
-
-      if (callEvents.length > 0) {
-        const incomingCallEvents = callEvents.filter((ev) => {
-          const type = String(ev.type || '').toLowerCase()
-          return !type.includes('outgoing') && type !== 'call_out'
-        })
-
-        if (incomingCallEvents.length > incomingCount) {
-          incomingCount = incomingCallEvents.length
-        }
-        if (callEvents.length > totalCount) {
-          totalCount = callEvents.length
-        }
       }
 
       return {
