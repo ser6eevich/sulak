@@ -3,7 +3,7 @@
 import React, { useState, useTransition } from 'react'
 import { saveTelegramSettingsAction, testTelegramNotificationAction } from './actions'
 import { saveAmoCrmCredentialsAction } from '@/app/(dashboard)/analytics/daily-report/actions'
-import { saveAvitoSettingsAction, AvitoAccountInput } from './actions'
+import { saveAvitoSettingsAction, testAvitoNotificationAction, AvitoAccountInput } from './actions'
 import { 
   createUserAction, 
   updateUserRoleAction, 
@@ -145,6 +145,8 @@ export default function SettingsClient({
   )
   const [avitoSaveMsg, setAvitoSaveMsg] = useState('')
   const [avitoSaveLoading, setAvitoSaveLoading] = useState(false)
+  const [avitoTestMsg, setAvitoTestMsg] = useState('')
+  const [avitoTestLoading, setAvitoTestLoading] = useState(false)
 
   // Настройки Telegram
   const [chatId, setChatId] = useState(initialChatId)
@@ -896,6 +898,12 @@ export default function SettingsClient({
               </div>
             )}
 
+            {avitoTestMsg && (
+              <div className={`p-3 rounded-xl text-xs font-medium ${avitoTestMsg.startsWith('Ошибка') ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-[var(--success-soft)] text-[var(--success)]'}`}>
+                {avitoTestMsg}
+              </div>
+            )}
+
             <form
               onSubmit={async (e) => {
                 e.preventDefault()
@@ -909,13 +917,39 @@ export default function SettingsClient({
             >
               {/* Telegram тема «Отзывы» */}
               <div className="p-4 bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded-lg space-y-3">
-                <h3 className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wider flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4 text-[var(--accent-primary)]" />
-                  Telegram-тема для уведомлений об отзывах
-                </h3>
-                <p className="text-[11px] text-[var(--text-secondary)]">
-                  Укажи ID темы «Отзывы» из вашего Telegram-чата. Чтобы узнать ID: откройте тему → напишите любое сообщение → перешли его <code className="font-mono">@userinfobot</code> — он покажет <code className="font-mono">message_thread_id</code>.
-                </p>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h3 className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wider flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4 text-[var(--accent-primary)]" />
+                      Telegram-тема для уведомлений об отзывах
+                    </h3>
+                    <p className="text-[11px] text-[var(--text-secondary)] mt-1">
+                      Укажи ID темы «Отзывы» из вашего Telegram-чата. Чтобы узнать ID: откройте тему → напишите любое сообщение → перешли его <code className="font-mono">@userinfobot</code> — он покажет <code className="font-mono">message_thread_id</code>.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={avitoTestLoading || !avitoReviewsTopicId.trim()}
+                    onClick={async () => {
+                      setAvitoTestLoading(true)
+                      setAvitoTestMsg('')
+                      const res = await testAvitoNotificationAction(avitoReviewsTopicId)
+                      setAvitoTestLoading(false)
+                      if (res.error) {
+                        setAvitoTestMsg(`Ошибка: ${res.error}`)
+                      } else {
+                        setAvitoTestMsg(res.message || 'Тестовый отзыв успешно отправлен!')
+                      }
+                    }}
+                    className="erp-button-secondary text-xs flex items-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50"
+                  >
+                    {avitoTestLoading ? (
+                      <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Отправка...</>
+                    ) : (
+                      <><Send className="h-3.5 w-3.5 text-[var(--accent-primary)]" /> Тестовое сообщение</>
+                    )}
+                  </button>
+                </div>
                 <div className="max-w-xs">
                   <label className="block text-xs font-semibold text-[var(--text-primary)] mb-1">
                     ID темы «Отзывы» <span className="text-[var(--danger)]">*</span>

@@ -231,3 +231,73 @@ export async function saveAvitoSettingsAction(
   }
 }
 
+export async function testAvitoNotificationAction(
+  topicId: string
+): Promise<{ error?: string; success?: boolean; message?: string }> {
+  try {
+    await checkAdminOrOwner()
+
+    const { getTelegramSettings } = await import('@/utils/telegram')
+    const { chatId, token } = await getTelegramSettings()
+
+    if (!chatId || !token) {
+      return { error: 'Telegram не настроен (заполните Chat ID и Bot Token во вкладке Telegram)' }
+    }
+
+    const cleanTopic = topicId.trim()
+    if (!cleanTopic) {
+      return { error: 'Укажите ID темы «Отзывы»' }
+    }
+
+    const date = new Date().toLocaleDateString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'Europe/Moscow',
+    })
+
+    const textMessage =
+      `📣 <b>[ТЕСТ] Новый отзыв на аккаунте «Тестовый Аккаунт»</b>\n` +
+      `─────────────────────────\n` +
+      `⭐ <b>Положительный</b>\n` +
+      `👤 <b>Покупатель:</b> Иван Петров (Тест)\n` +
+      `📅 <b>Дата:</b> ${date}\n\n` +
+      `💬 <i>Отличный стол! Качество супер, спасибо за оперативность. (Тестовое уведомление из настроек CRM)</i>\n\n` +
+      `─────────────────────────\n`
+
+    const payload: any = {
+      chat_id: chatId,
+      text: textMessage,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '👤 Профиль покупателя (Тест)', url: 'https://www.avito.ru' }]
+        ]
+      }
+    }
+
+    if (!isNaN(parseInt(cleanTopic, 10))) {
+      payload.message_thread_id = parseInt(cleanTopic, 10)
+    }
+
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    const data = await res.json()
+
+    if (!res.ok || !data.ok) {
+      return { error: `Telegram API вернул ошибку: ${data.description || 'Не удалось отправить сообщение'}` }
+    }
+
+    return { success: true, message: `Тестовое сообщение об отзыве успешно отправлено в тему ID ${cleanTopic}!` }
+  } catch (error: unknown) {
+    return { error: error instanceof Error ? error.message : 'Ошибка отправки тестового отзыва' }
+  }
+}
+
+
