@@ -48,10 +48,6 @@ export class CallsAnalytics {
         amoClient.getCallsByUpdatedAt(fromTimestamp, toTimestamp),
       ])
 
-      const leadIds = Array.from(new Set((allEvents || []).filter((ev) => ev.entity_id && ev.entity_type === 'lead').map((ev) => ev.entity_id)))
-      const leads = await amoClient.getLeadsByIds(leadIds)
-      const leadMap = new Map(leads.map((l) => [l.id, l]))
-
       // Проверяем точное кастомное поле SalesBot: ID 1041695 ("Есть звонок (новые)?")
       let incomingCallsCount = 0
 
@@ -62,11 +58,7 @@ export class CallsAnalytics {
         const isCallField = ev.type === 'custom_field_1041695_value_changed' || (fieldStr.includes('звонок') && fieldStr.includes('новые'))
 
         if (isCallField) {
-          const lead = leadMap.get(ev.entity_id)
-          const isCreatedToday = !lead || (lead.created_at >= fromTimestamp && lead.created_at <= toTimestamp)
-          if (isCreatedToday) {
-            incomingCallsCount++
-          }
+          incomingCallsCount++
         }
       }
 

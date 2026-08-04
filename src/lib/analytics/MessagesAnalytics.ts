@@ -42,17 +42,12 @@ export class MessagesAnalytics {
     const fromTimestamp = Math.floor(startOfDay.getTime() / 1000)
     const toTimestamp = Math.floor(endOfDay.getTime() / 1000)
 
-    // 1. Загружаем все события за день
+    // 1. Загружаем все события за день из amoCRM
     const events = await amoClient.getEvents(fromTimestamp, toTimestamp, [])
 
     if (!events || events.length === 0) {
       return { newMessages: 0, repeatMessages: 0, newIncoming: 0, totalEventsCount: 0 }
     }
-
-    // 2. Сбор дат создания сделок/контактов
-    const leadIds = Array.from(new Set(events.filter((ev) => ev.entity_id && ev.entity_type === 'lead').map((ev) => ev.entity_id)))
-    const leads = await amoClient.getLeadsByIds(leadIds)
-    const leadMap = new Map(leads.map((l) => [l.id, l]))
 
     let newMsgsCount = 0
     let repeatMsgsCount = 0
@@ -68,11 +63,7 @@ export class MessagesAnalytics {
       const isRepeatField = ev.type === 'custom_field_1042419_value_changed' || (fieldStr.includes('обращение') && (fieldStr.includes('повтор') || fieldStr.includes('повторные')))
 
       if (isNewField) {
-        const lead = leadMap.get(ev.entity_id)
-        const isCreatedToday = !lead || (lead.created_at >= fromTimestamp && lead.created_at <= toTimestamp)
-        if (isCreatedToday) {
-          newMsgsCount++
-        }
+        newMsgsCount++
       } else if (isRepeatField) {
         repeatMsgsCount++
       }
@@ -88,7 +79,11 @@ export class MessagesAnalytics {
       }
     }
 
-    // Фолбэк на стандартные входящие чат-сообщения
+    // Фолбэк на классические чат-сообщения
+    const leadIds = Array.from(new Set(events.filter((ev) => ev.entity_id && ev.entity_type === 'lead').map((ev) => ev.entity_id)))
+    const leads = await amoClient.getLeadsByIds(leadIds)
+    const leadMap = new Map(leads.map((l) => [l.id, l]))
+
     const incomingChatEvents = events.filter((ev) => ev.type === 'incoming_chat_message')
     const newContacts = new Set<number>()
     const repeatContacts = new Set<number>()
