@@ -4,7 +4,7 @@ import prisma from '@/lib/prisma'
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
-import { sendOrderDeliveredTelegramNotification } from '@/utils/telegram'
+import { sendOrderTelegramNotification } from '@/utils/telegram'
 
 async function checkLogisticianOrAbove() {
   const supabase = await createClient()
@@ -92,9 +92,17 @@ export async function updateOrderStatusInLogisticsAction(
       })
     })
 
-    if (newStatus === 'delivered') {
-      sendOrderDeliveredTelegramNotification(orderId).catch(err => {
+    if (newStatus === 'delivery') {
+      sendOrderTelegramNotification(orderId, 'delivering').catch(err => {
+        console.error('Ошибка отправки ТГ уведомления о передаче в доставку:', err)
+      })
+    } else if (newStatus === 'delivered') {
+      sendOrderTelegramNotification(orderId, 'delivered').catch(err => {
         console.error('Ошибка отправки ТГ уведомления о доставке из логистики:', err)
+      })
+    } else if (newStatus === 'cancelled') {
+      sendOrderTelegramNotification(orderId, 'cancelled', comment).catch(err => {
+        console.error('Ошибка отправки ТГ уведомления об отмене:', err)
       })
     }
 

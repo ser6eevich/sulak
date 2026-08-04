@@ -551,38 +551,7 @@ export default function SettingsClient({
               </div>
             </div>
 
-            {/* Настройка ID тем (топиков) Telegram-группы */}
-            <div className="p-4 bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded-lg space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wider flex items-center gap-2">
-                  <Bot className="h-4 w-4 text-[var(--accent-primary)]" />
-                  ID тем (топиков) Telegram-группы (Forum Topics)
-                </h3>
-              </div>
-              <p className="text-[11px] text-[var(--text-secondary)]">
-                Если ваша супергруппа в Telegram разделена на темы (Forum mode), укажите ID соответствующих тем. Бот будет отправлять алерты и уведомления прямо в назначенные темы.
-              </p>
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {TOPIC_CONFIG.map(tCfg => (
-                  <div key={tCfg.key} className="p-3 bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-md space-y-1.5">
-                    <label className="block text-[11px] font-semibold text-[var(--text-primary)]">
-                      {tCfg.label}
-                    </label>
-                    <p className="text-[10px] text-[var(--text-tertiary)]">{tCfg.desc}</p>
-                    <div className="pt-1">
-                      <input
-                        type="text"
-                        placeholder={tCfg.placeholder}
-                        value={topics[tCfg.key] || ''}
-                        onChange={e => setTopics(prev => ({ ...prev, [tCfg.key]: e.target.value }))}
-                        className="erp-input w-full font-mono text-xs"
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
 
             {/* Ручная настройка порогов простоя по статусам */}
             <div className="p-4 bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded-lg space-y-4">

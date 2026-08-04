@@ -7,7 +7,7 @@ import { normalizePhoneNumber, validatePhoneNumber } from '@/utils/phone'
 import { normalizeAddress } from '@/utils/address'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
-import { sendOrderDeliveredTelegramNotification, getTelegramSettings } from '@/utils/telegram'
+import { sendOrderTelegramNotification, getTelegramSettings } from '@/utils/telegram'
 
 // Схемы валидации
 const orderItemSchema = z.object({
@@ -191,7 +191,7 @@ export async function createOrderAction(data: z.infer<typeof createOrderSchema>)
     revalidatePath('/orders')
     
     // Отправляем уведомление в Telegram в фоновом режиме
-    sendTelegramNotification(orderResult.id).catch((err) => {
+    sendOrderTelegramNotification(orderResult.id, 'new_order').catch((err) => {
       console.error('Ошибка отправки уведомления в Telegram:', err)
     })
 
@@ -415,9 +415,17 @@ export async function updateOrderStatusAction(
       })
     })
 
-    if (newStatus === 'delivered') {
-      sendOrderDeliveredTelegramNotification(orderId).catch(err => {
+    if (newStatus === 'delivery') {
+      sendOrderTelegramNotification(orderId, 'delivering').catch(err => {
+        console.error('Ошибка отправки ТГ уведомления о передаче в доставку:', err)
+      })
+    } else if (newStatus === 'delivered') {
+      sendOrderTelegramNotification(orderId, 'delivered').catch(err => {
         console.error('Ошибка отправки ТГ уведомления о доставке:', err)
+      })
+    } else if (newStatus === 'cancelled') {
+      sendOrderTelegramNotification(orderId, 'cancelled', comment).catch(err => {
+        console.error('Ошибка отправки ТГ уведомления об отмене:', err)
       })
     }
 
@@ -1049,7 +1057,7 @@ export async function batchUpdateOrdersDeliveredAction(orderIds: string[], custo
 
       // Отправка Telegram-уведомления о доставке
       try {
-        await sendOrderDeliveredTelegramNotification(order.id)
+        await sendOrderTelegramNotification(order.id, 'delivered')
       } catch (tgErr) {
         console.error('Ошибка отправки ТГ уведомления при пакетной доставке:', tgErr)
       }

@@ -71,12 +71,16 @@ async function sendReviewNotification(
 
   const typeLabel = reviewTypeLabel(review.type)
   const authorUrl = buildReviewUrl(review.author?.url || '')
+  const ratingVal = review.type === 'positive' ? 5 : (review.type === 'negative' ? 1 : 3)
+  const ratingStr = '⭐'.repeat(ratingVal)
+  const authorName = review.author?.name || 'Неизвестный'
 
   const text =
-    `📣 <b>Новый отзыв на аккаунте «${accountName}»</b>\n` +
+    `#отзыв_авито\n` +
+    `⭐ <b>Новый отзыв на Авито (${ratingStr})</b>\n` +
+    `🏪 <b>Аккаунт:</b> ${accountName}\n` +
     `─────────────────────────\n` +
-    `${typeLabel}\n` +
-    `👤 <b>Покупатель:</b> ${review.author?.name || 'Неизвестный'}\n` +
+    `👤 <b>Автор:</b> ${authorName}\n` +
     `📅 <b>Дата:</b> ${date}\n` +
     (review.text
       ? `\n💬 <i>${review.text}</i>\n`
