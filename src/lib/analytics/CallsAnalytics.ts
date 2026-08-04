@@ -1,9 +1,21 @@
-import { amoClient } from './AmoClient'
+import { amoClient, AmoEvent } from './AmoClient'
 
 export interface CallsStats {
   incomingCalls: number
   missedCalls: number
   totalCalls: number
+}
+
+function getCustomFieldName(ev: AmoEvent): string {
+  if (!ev.value_after) return ''
+  try {
+    const val = Array.isArray(ev.value_after) ? ev.value_after[0] : ev.value_after
+    if (val?.custom_field?.name) return String(val.custom_field.name)
+    if (val?.name) return String(val.name)
+    return JSON.stringify(ev.value_after)
+  } catch {
+    return ''
+  }
 }
 
 export class CallsAnalytics {
@@ -20,15 +32,29 @@ export class CallsAnalytics {
     const toTimestamp = Math.floor(endOfDay.getTime() / 1000)
 
     try {
-      // 1. Загружаем звонки из REST API /api/v4/calls по created_at и по updated_at
-      // 2. Загружаем все события дня из /api/v4/events
-      const [callsCreated, callsUpdated, allEvents] = await Promise.all([
+      // 1. Загружаем все события дня из /api/v4/events
+      // 2. Загружаем звонки из /api/v4/calls
+      const [allEvents, callsCreated, callsUpdated] = await Promise.all([
+        amoClient.getEvents(fromTimestamp, toTimestamp, []),
         amoClient.getCalls(fromTimestamp, toTimestamp),
         amoClient.getCallsByUpdatedAt(fromTimestamp, toTimestamp),
-        amoClient.getEvents(fromTimestamp, toTimestamp, []),
       ])
 
-      // Объединяем звонки без дублей
+      // Проверяем поле SalesBot: "Есть звонок (новые)"
+      const callFieldEvents = (allEvents || []).filter((ev) => {
+        const fieldStr = getCustomFieldName(ev).toLowerCase()
+        return fieldStr.includes('звонок') && fieldStr.includes('новые')
+      })
+
+      if (callFieldEvents.length > 0) {
+        return {
+          incomingCalls: callFieldEvents.length,
+          missedCalls: 0,
+          totalCalls: callFieldEvents.length,
+        }
+      }
+
+      // Фолбэк на стандартный REST API звонков
       const callMap = new Map<number, any>()
       ;(callsCreated || []).forEach((c: any) => { if (c.id) callMap.set(c.id, c) })
       ;(callsUpdated || []).forEach((c: any) => { if (c.id) callMap.set(c.id, c) })
@@ -50,7 +76,6 @@ export class CallsAnalytics {
         })
       }
 
-      // Дополнительно анализируем события телефонии в ленте amoCRM (/api/v4/events)
       const callEvents = (allEvents || []).filter((ev) => {
         const type = String(ev.type || '').toLowerCase()
         return (

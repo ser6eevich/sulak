@@ -7,6 +7,18 @@ export interface MessagesStats {
   totalEventsCount: number
 }
 
+function getCustomFieldName(ev: AmoEvent): string {
+  if (!ev.value_after) return ''
+  try {
+    const val = Array.isArray(ev.value_after) ? ev.value_after[0] : ev.value_after
+    if (val?.custom_field?.name) return String(val.custom_field.name)
+    if (val?.name) return String(val.name)
+    return JSON.stringify(ev.value_after)
+  } catch {
+    return ''
+  }
+}
+
 export class MessagesAnalytics {
   /**
    * Полный расчёт метрик сообщений за выбранную дату
@@ -24,11 +36,8 @@ export class MessagesAnalytics {
     const fromTimestamp = Math.floor(startOfDay.getTime() / 1000)
     const toTimestamp = Math.floor(endOfDay.getTime() / 1000)
 
-    // 1. Загружаем все события сообщений за выбранный день
-    const events = await amoClient.getEvents(fromTimestamp, toTimestamp, [
-      'incoming_chat_message',
-      'talk_created',
-    ])
+    // 1. Загружаем все события за выбранный день
+    const events = await amoClient.getEvents(fromTimestamp, toTimestamp, [])
 
     if (!events || events.length === 0) {
       return {
@@ -39,54 +48,63 @@ export class MessagesAnalytics {
       }
     }
 
-    // Собираем ID по типам сущностей (lead, contact, talk)
+    // 2. Ищем события изменения кастомных полей SalesBot: "Есть обращение (новые)" и "Есть обращение (повторные)"
+    const newMsgFieldEvents = events.filter((ev) => {
+      const fieldStr = getCustomFieldName(ev).toLowerCase()
+      return fieldStr.includes('обращение') && fieldStr.includes('новые')
+    })
+
+    const repeatMsgFieldEvents = events.filter((ev) => {
+      const fieldStr = getCustomFieldName(ev).toLowerCase()
+      return fieldStr.includes('обращение') && (fieldStr.includes('повтор') || fieldStr.includes('повторные'))
+    })
+
+    // Если есть записи полей SalesBot — утилизируем точные цифры бота
+    if (newMsgFieldEvents.length > 0 || repeatMsgFieldEvents.length > 0) {
+      return {
+        newMessages: newMsgFieldEvents.length,
+        repeatMessages: repeatMsgFieldEvents.length,
+        newIncoming: newMsgFieldEvents.length,
+        totalEventsCount: newMsgFieldEvents.length + repeatMsgFieldEvents.length,
+      }
+    }
+
+    // Фолбэк: анализ классических чат-событий если SalesBot не заполнял поля
+    const incomingChatEvents = events.filter((ev) => ev.type === 'incoming_chat_message')
+
     const leadIds: number[] = []
     const contactIds: number[] = []
     const talkIds: number[] = []
 
-    events.forEach((ev) => {
+    incomingChatEvents.forEach((ev) => {
       if (!ev.entity_id) return
       if (ev.entity_type === 'lead') leadIds.push(ev.entity_id)
       else if (ev.entity_type === 'contact') contactIds.push(ev.entity_id)
       else talkIds.push(ev.entity_id)
     })
 
-    // 2. Получаем метаданные сущностей по их ID
-    const [leads, contacts, talksById, recentTalks] = await Promise.all([
+    const [leads, contacts, talksById] = await Promise.all([
       amoClient.getLeadsByIds(leadIds),
       amoClient.getContactsByIds(contactIds),
       amoClient.getTalksByIds(talkIds),
-      amoClient.getTalks(),
     ])
 
     const leadMap = new Map(leads.map((l) => [l.id, l]))
     const contactMap = new Map(contacts.map((c) => [c.id, c]))
     const talkMap = new Map<number, AmoTalk>()
-    for (const t of recentTalks) if (t.id) talkMap.set(t.id, t)
     for (const t of talksById) if (t.id) talkMap.set(t.id, t)
-
-    const talksCreatedToday = new Set<number>()
-    events.forEach((ev) => {
-      if (ev.type === 'talk_created') talksCreatedToday.add(ev.entity_id)
-    })
 
     const newContacts = new Set<number>()
     const repeatContacts = new Set<number>()
-    const incomingEvents = events.filter((ev) => ev.type === 'incoming_chat_message')
 
-    for (const ev of incomingEvents) {
+    for (const ev of incomingChatEvents) {
       const entityId = ev.entity_id
       let createdAtTimestamp: number | undefined
 
-      if (ev.entity_type === 'lead') {
-        createdAtTimestamp = leadMap.get(entityId)?.created_at
-      } else if (ev.entity_type === 'contact') {
-        createdAtTimestamp = contactMap.get(entityId)?.created_at
-      } else if (ev.entity_type === 'talk') {
-        createdAtTimestamp = talkMap.get(entityId)?.created_at
-      }
+      if (ev.entity_type === 'lead') createdAtTimestamp = leadMap.get(entityId)?.created_at
+      else if (ev.entity_type === 'contact') createdAtTimestamp = contactMap.get(entityId)?.created_at
+      else if (ev.entity_type === 'talk') createdAtTimestamp = talkMap.get(entityId)?.created_at
 
-      // Если в профильном мапе не нашли, проверяем другие мапы на всякий случай
       if (!createdAtTimestamp) {
         createdAtTimestamp =
           talkMap.get(entityId)?.created_at ||
@@ -95,22 +113,13 @@ export class MessagesAnalytics {
       }
 
       if (createdAtTimestamp) {
-        // Если сущность (сделка/контакт/беседа) создана СЕГОДНЯ — новое сообщение
         if (createdAtTimestamp >= fromTimestamp && createdAtTimestamp <= toTimestamp) {
           newContacts.add(entityId)
         } else if (createdAtTimestamp < fromTimestamp) {
-          // Если сущность создана ДО сегодняшнего дня — повторное сообщение
           repeatContacts.add(entityId)
         }
       } else {
-        // Если через API не удалось найти дату создания сущности:
-        // Проверяем событие talk_created за сегодня
-        if (talksCreatedToday.has(entityId)) {
-          newContacts.add(entityId)
-        } else {
-          // При отсутствии даты по умолчанию относим к новым, если сообщение пришло сегодня
-          newContacts.add(entityId)
-        }
+        newContacts.add(entityId)
       }
     }
 
@@ -118,7 +127,7 @@ export class MessagesAnalytics {
       newMessages: newContacts.size,
       repeatMessages: repeatContacts.size,
       newIncoming: newContacts.size,
-      totalEventsCount: incomingEvents.length,
+      totalEventsCount: incomingChatEvents.length,
     }
   }
 }
