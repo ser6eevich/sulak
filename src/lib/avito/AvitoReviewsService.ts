@@ -1,7 +1,7 @@
 /**
  * AvitoReviewsService.ts
  * Сервис: обходит все настроенные аккаунты Авито, находит новые отзывы
- * и отправляет уведомления в Telegram-тему «Отзывы».
+ * и отправляет уведомления в Telegram.
  */
 
 import prisma from '@/lib/prisma'
@@ -10,8 +10,15 @@ import {
   fetchAvitoReviews,
   buildReviewUrl,
   reviewTypeLabel,
-  AvitoReview,
+  type AvitoReview,
 } from './AvitoReviewsClient'
+
+export {
+  fetchAvitoReviews,
+  buildReviewUrl,
+  reviewTypeLabel,
+  type AvitoReview,
+}
 
 export interface AvitoAccount {
   name: string
@@ -26,12 +33,9 @@ export async function loadAvitoAccounts(): Promise<AvitoAccount[]> {
       `SELECT key, value FROM public.system_settings WHERE key LIKE 'avito_account_%'`
     )
 
-    // Ключи имеют вид:
-    //   avito_account_1_name, avito_account_1_client_id, avito_account_1_client_secret
     const accounts: Record<string, Partial<AvitoAccount>> = {}
 
     for (const row of rows) {
-      // avito_account_3_client_secret → idx=3, field=client_secret
       const match = row.key.match(/^avito_account_(\d+)_(.+)$/)
       if (!match) continue
       const idx = match[1]
@@ -57,10 +61,9 @@ async function sendReviewNotification(
   review: AvitoReview,
   accountName: string,
   chatId: string,
-  token: string,
-  reviewsTopicId?: string
+  token: string
 ) {
-  const date = new Date(review.createdAt * 1000).toLocaleDateString('ru-RU', {
+  const date = new Date((review.createdAt || Math.floor(Date.now() / 1000)) * 1000).toLocaleString('ru-RU', {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
@@ -69,7 +72,6 @@ async function sendReviewNotification(
     timeZone: 'Europe/Moscow',
   })
 
-  const typeLabel = reviewTypeLabel(review.type)
   const authorUrl = buildReviewUrl(review.author?.url || '')
   const ratingVal = review.type === 'positive' ? 5 : (review.type === 'negative' ? 1 : 3)
   const ratingStr = '⭐'.repeat(ratingVal)
@@ -96,18 +98,12 @@ async function sendReviewNotification(
     parse_mode: 'HTML',
   }
 
-  // Добавляем кнопку «Профиль покупателя» если есть ссылка
   if (authorUrl && authorUrl !== 'https://www.avito.ru') {
     body.reply_markup = {
       inline_keyboard: [
         [{ text: '👤 Профиль покупателя', url: authorUrl }],
       ],
     }
-  }
-
-  // Отправляем в тему «Отзывы» если ID темы задан
-  if (reviewsTopicId && !isNaN(parseInt(reviewsTopicId))) {
-    body.message_thread_id = parseInt(reviewsTopicId)
   }
 
   const res = await fetch(
@@ -125,81 +121,77 @@ async function sendReviewNotification(
   }
 }
 
-/** Основная функция: проверить все аккаунты и уведомить о новых отзывах */
+/**
+ * Главный метод крона: обходит все аккаунты, находит новые отзывы и рассылает алерты.
+ */
 export async function checkAndNotifyAvitoReviews(): Promise<{
-  processed: number
-  newReviews: number
+  checkedAccounts: number
+  newReviewsFound: number
   errors: string[]
 }> {
-  const accounts = await loadAvitoAccounts()
-  const { chatId, token, topics } = await getTelegramSettings()
+  const errors: string[] = []
+  let newReviewsFound = 0
 
-  const result = { processed: 0, newReviews: 0, errors: [] as string[] }
+  const { chatId, token } = await getTelegramSettings()
 
   if (!chatId || !token) {
-    result.errors.push('Telegram не настроен (нет chatId или token)')
-    return result
-  }
-
-  if (accounts.length === 0) {
-    result.errors.push('Нет настроенных аккаунтов Авито')
-    return result
-  }
-
-  const reviewsTopicId = topics?.reviews || ''
-
-  for (const account of accounts) {
-    result.processed++
-    try {
-      const reviews = await fetchAvitoReviews(account.clientId, account.clientSecret, 20)
-
-      for (const review of reviews) {
-        const reviewId = String(review.id)
-
-        // Проверяем, не отправляли ли уже
-        const existing = await prisma.avitoSentReview.findUnique({
-          where: { reviewId },
-        })
-
-        if (existing) continue // Уже отправлено
-
-        // Защита от спама старыми отзывами при первом подключении:
-        // Если отзыв старше 48 часов, просто помечаем его как сохраненный в БД без отправки в Telegram
-        const nowSec = Math.floor(Date.now() / 1000)
-        const isOldReview = review.createdAt && (nowSec - review.createdAt > 48 * 3600)
-
-        if (isOldReview) {
-          await prisma.avitoSentReview.create({
-            data: {
-              reviewId,
-              accountName: account.name,
-            },
-          })
-          continue
-        }
-
-        // Отправляем уведомление в Telegram только для новых свежих отзывов
-        await sendReviewNotification(review, account.name, chatId, token, reviewsTopicId)
-
-        // Сохраняем в БД
-        await prisma.avitoSentReview.create({
-          data: {
-            reviewId,
-            accountName: account.name,
-          },
-        })
-
-        result.newReviews++
-
-        // Небольшая пауза между сообщениями, чтобы не попасть в rate limit Telegram
-        await new Promise(r => setTimeout(r, 300))
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error(`[AvitoReviewsService] Ошибка аккаунта «${account.name}»:`, msg)
-      result.errors.push(`${account.name}: ${msg}`)
+    return {
+      checkedAccounts: 0,
+      newReviewsFound: 0,
+      errors: ['Telegram не настроен (TELEGRAM_CHAT_ID / TELEGRAM_BOT_TOKEN не заданы)'],
     }
   }
 
-  return result
+  const accounts = await loadAvitoAccounts()
+
+  if (accounts.length === 0) {
+    return {
+      checkedAccounts: 0,
+      newReviewsFound: 0,
+      errors: ['Не настроен ни один аккаунт Авито'],
+    }
+  }
+
+  const nowSeconds = Math.floor(Date.now() / 1000)
+  const MAX_REVIEW_AGE_SECONDS = 48 * 3600
+
+  for (const acc of accounts) {
+    try {
+      const reviews = await fetchAvitoReviews(acc.clientId, acc.clientSecret, 20)
+
+      for (const rev of reviews) {
+        if (nowSeconds - rev.createdAt > MAX_REVIEW_AGE_SECONDS) {
+          continue
+        }
+
+        const compositeKey = `${acc.clientId}_${rev.id}`
+        const existing = await prisma.avitoSentReview.findUnique({
+          where: { reviewId: compositeKey },
+        })
+
+        if (existing) continue
+
+        await sendReviewNotification(rev, acc.name, chatId, token)
+
+        await prisma.avitoSentReview.create({
+          data: {
+            reviewId: compositeKey,
+            accountName: acc.name,
+          },
+        })
+
+        newReviewsFound++
+      }
+    } catch (err: any) {
+      const msg = `Ошибка аккаунта «${acc.name}»: ${err?.message || String(err)}`
+      console.error(`[AvitoReviewsService] ${msg}`)
+      errors.push(msg)
+    }
+  }
+
+  return {
+    checkedAccounts: accounts.length,
+    newReviewsFound,
+    errors,
+  }
 }

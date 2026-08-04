@@ -3,7 +3,7 @@
 import React, { useState, useTransition } from 'react'
 import { saveTelegramSettingsAction, testTelegramNotificationAction } from './actions'
 import { saveAmoCrmCredentialsAction } from '@/app/(dashboard)/analytics/daily-report/actions'
-import { saveAvitoSettingsAction, testAvitoNotificationAction, AvitoAccountInput } from './actions'
+import { saveAvitoSettingsAction, sendLatestReviewPerAccountAction, AvitoAccountInput } from './actions'
 import { 
   createUserAction, 
   updateUserRoleAction, 
@@ -897,61 +897,49 @@ export default function SettingsClient({
                 e.preventDefault()
                 setAvitoSaveLoading(true)
                 setAvitoSaveMsg('')
-                const res = await saveAvitoSettingsAction(avitoReviewsTopicId, avitoAccounts)
+                const res = await saveAvitoSettingsAction(avitoAccounts)
                 setAvitoSaveLoading(false)
                 setAvitoSaveMsg(res.error ? `Ошибка: ${res.error}` : '✅ Настройки Авито сохранены!')
               }}
               className="space-y-6"
             >
-              {/* Telegram тема «Отзывы» */}
+              {/* Проверка интеграции отзывов Авито */}
               <div className="p-4 bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded-lg space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div>
                     <h3 className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wider flex items-center gap-2">
                       <MessageSquare className="h-4 w-4 text-[var(--accent-primary)]" />
-                      Telegram-тема для уведомлений об отзывах
+                      Проверка интеграции отзывов Авито
                     </h3>
                     <p className="text-[11px] text-[var(--text-secondary)] mt-1">
-                      Укажи ID темы «Отзывы» из вашего Telegram-чата. Чтобы узнать ID: откройте тему → напишите любое сообщение → перешли его <code className="font-mono">@userinfobot</code> — он покажет <code className="font-mono">message_thread_id</code>.
+                      Нажмите кнопку ниже, чтобы система запросила Авито API и отправила по 1 последнему отзыву с каждого настроенного аккаунта прямо в ваш Telegram-чат с тегом <code className="font-mono">#отзыв_авито</code>.
                     </p>
                   </div>
                   <button
                     type="button"
-                    disabled={avitoTestLoading || !avitoReviewsTopicId.trim()}
+                    disabled={avitoTestLoading}
                     onClick={async () => {
                       setAvitoTestLoading(true)
                       setAvitoTestMsg('')
-                      const res = await testAvitoNotificationAction(avitoReviewsTopicId)
+                      const res = await sendLatestReviewPerAccountAction()
                       setAvitoTestLoading(false)
                       if (res.error) {
                         setAvitoTestMsg(`Ошибка: ${res.error}`)
                       } else {
-                        setAvitoTestMsg(res.message || 'Тестовый отзыв успешно отправлен!')
+                        setAvitoTestMsg(res.message || 'Отзывы успешно отправлены в Telegram!')
                       }
                     }}
                     className="erp-button-secondary text-xs flex items-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50"
                   >
                     {avitoTestLoading ? (
-                      <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Отправка...</>
+                      <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Получение отзывов...</>
                     ) : (
-                      <><Send className="h-3.5 w-3.5 text-[var(--accent-primary)]" /> Тестовое сообщение</>
+                      <><Send className="h-3.5 w-3.5 text-[var(--accent-primary)]" /> Отправить последний 1 отзыв с аккаунтов</>
                     )}
                   </button>
                 </div>
-                <div className="max-w-xs">
-                  <label className="block text-xs font-semibold text-[var(--text-primary)] mb-1">
-                    ID темы «Отзывы» <span className="text-[var(--danger)]">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={avitoReviewsTopicId}
-                    onChange={e => setAvitoReviewsTopicId(e.target.value)}
-                    placeholder="например: 42"
-                    className="erp-input w-full font-mono text-xs"
-                    required
-                  />
-                </div>
               </div>
+
 
               {/* Аккаунты Авито */}
               <div className="p-4 bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded-lg space-y-4">
