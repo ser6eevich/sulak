@@ -127,7 +127,16 @@ export async function createOrderAction(data: z.infer<typeof createOrderSchema>)
 
       const grandTotalCents = totalPrice + deliveryPriceCents + assemblyPriceCents - discountCents
 
-      // 4. Создаем заказ с поддержкой ретроспективных дат и статусов
+      // 4. Синхронизируем счетчик номеров заказов с актуальным максимумом
+      await tx.$executeRawUnsafe(`
+        SELECT setval(
+          'orders_number_seq', 
+          GREATEST(COALESCE((SELECT MAX(number::INT) FROM orders WHERE number ~ '^[0-9]+$'), 0), 1), 
+          true
+        );
+      `)
+
+      // 5. Создаем заказ с поддержкой ретроспективных дат и статусов
       const order = await tx.order.create({
         data: {
           clientId: client.id,
