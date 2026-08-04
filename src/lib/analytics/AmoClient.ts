@@ -53,21 +53,27 @@ export class AmoClient {
     const map: Record<string, string> = {}
     for (const s of settings) map[s.key] = s.value
 
-    this.subdomain = map['amocrm_subdomain'] || ''
+    // Очищаем поддомен от https://, .amocrm.ru и т.д.
+    this.subdomain = (map['amocrm_subdomain'] || '')
+      .trim()
+      .replace(/^https?:\/\//i, '')
+      .replace(/\.amocrm\.ru.*$/i, '')
+      .replace(/\/.*$/, '')
+      .trim()
+
     this.clientId = map['amocrm_client_id'] || ''
     this.clientSecret = map['amocrm_client_secret'] || ''
-    this.accessToken = map['amocrm_access_token'] || ''
-    this.refreshToken = map['amocrm_refresh_token'] || ''
+    this.accessToken = (map['amocrm_access_token'] || '').trim()
+    this.refreshToken = (map['amocrm_refresh_token'] || '').trim()
     this.expiresAt = parseInt(map['amocrm_expires_at'] || '0', 10)
 
     if (!this.subdomain || !this.accessToken) {
       return false
     }
 
-    // Проверяем срок действия токена (если до истечения менее 5 минут — обновляем)
-    if (Date.now() >= this.expiresAt - 300000) {
-      const refreshed = await this.refreshTokens()
-      if (!refreshed) return false
+    // Пробуем обновить токен через refresh_token если срок подходит
+    if (this.refreshToken && this.clientId && this.clientSecret && Date.now() >= this.expiresAt - 300000) {
+      await this.refreshTokens()
     }
 
     return true
@@ -102,10 +108,9 @@ export class AmoClient {
 
       const data = await res.json()
       this.accessToken = data.access_token
-      this.refreshToken = data.refresh_token
+      this.refreshToken = data.refresh_token || this.refreshToken
       this.expiresAt = Date.now() + (data.expires_in || 86400) * 1000
 
-      // Сохраняем обновленные токены в базу данных
       await prisma.$transaction([
         prisma.systemSetting.upsert({
           where: { key: 'amocrm_access_token' },
@@ -134,7 +139,7 @@ export class AmoClient {
   /**
    * Запрос к API amoCRM с заголовком Authorization
    */
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T | null> {
+  async request<T>(endpoint: string, options: RequestInit = {}): Promise<T | null> {
     const isReady = await this.init()
     if (!isReady) return null
 
@@ -161,9 +166,33 @@ export class AmoClient {
   }
 
   /**
-   * 1. События (GET /api/v4/events) с фильтрацией по созданному периоду и типам
+   * Проверка тестового подключения к аккаунту amoCRM
    */
-  async getEvents(fromTimestamp: number, toTimestamp: number, eventTypes: string[] = ['incoming_chat_message']): Promise<AmoEvent[]> {
+  async testConnection(): Promise<{ ok: boolean; accountName?: string; error?: string }> {
+    const isReady = await this.init()
+    if (!isReady) {
+      return { ok: false, error: 'Настройки amoCRM не заполнено (проверьте поддомен и токен доступа)' }
+    }
+
+    try {
+      const data = await this.request<{ name?: string; id?: number }>('/api/v4/account')
+      if (data && data.name) {
+        return { ok: true, accountName: data.name }
+      }
+      return { ok: false, error: 'amoCRM API не вернул название аккаунта. Проверьте правильность токена.' }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'Ошибка при подключении к amoCRM' }
+    }
+  }
+
+  /**
+   * 1. События (GET /api/v4/events)
+   */
+  async getEvents(
+    fromTimestamp: number,
+    toTimestamp: number,
+    eventTypes: string[] = ['incoming_chat_message']
+  ): Promise<AmoEvent[]> {
     const cacheKey = `events_${fromTimestamp}_${toTimestamp}_${eventTypes.join(',')}`
     const cached = cacheService.get<AmoEvent[]>(cacheKey)
     if (cached) return cached
@@ -174,7 +203,7 @@ export class AmoClient {
 
     while (true) {
       let endpoint = `/api/v4/events?limit=${limit}&page=${page}&filter[created_at][from]=${fromTimestamp}&filter[created_at][to]=${toTimestamp}`
-      
+
       if (eventTypes.length > 0) {
         eventTypes.forEach((t) => {
           endpoint += `&filter[type][]=${encodeURIComponent(t)}`
@@ -191,19 +220,47 @@ export class AmoClient {
       if (events.length < limit) break
       page++
 
-      // Страховка от бесконечного цикла
       if (page > 30) break
     }
 
-    cacheService.set(cacheKey, allEvents, 300000) // кэшируем на 5 минут
+    cacheService.set(cacheKey, allEvents, 300000)
     return allEvents
   }
 
   /**
-   * 2. Беседы (GET /api/v4/talks)
+   * 2. Получение информации о конкретных беседах по их ID
+   */
+  async getTalksByIds(ids: number[]): Promise<AmoTalk[]> {
+    if (!ids || ids.length === 0) return []
+    const uniqueIds = Array.from(new Set(ids))
+    const cacheKey = `talks_ids_${uniqueIds.sort().join('_')}`
+    const cached = cacheService.get<AmoTalk[]>(cacheKey)
+    if (cached) return cached
+
+    const allTalks: AmoTalk[] = []
+    const chunkSize = 50
+
+    for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+      const chunk = uniqueIds.slice(i, i + chunkSize)
+      let endpoint = `/api/v4/talks?limit=250`
+      chunk.forEach((id) => {
+        endpoint += `&filter[id][]=${id}`
+      })
+
+      const data = await this.request<{ _embedded?: { talks?: AmoTalk[] } }>(endpoint)
+      const talks = data?._embedded?.talks || []
+      allTalks.push(...talks)
+    }
+
+    cacheService.set(cacheKey, allTalks, 300000)
+    return allTalks
+  }
+
+  /**
+   * 3. Беседы (GET /api/v4/talks)
    */
   async getTalks(): Promise<AmoTalk[]> {
-    const cacheKey = 'talks_all'
+    const cacheKey = 'talks_recent'
     const cached = cacheService.get<AmoTalk[]>(cacheKey)
     if (cached) return cached
 
@@ -223,7 +280,7 @@ export class AmoClient {
       if (talks.length < limit) break
       page++
 
-      if (page > 30) break
+      if (page > 10) break
     }
 
     cacheService.set(cacheKey, allTalks, 300000)
@@ -231,7 +288,7 @@ export class AmoClient {
   }
 
   /**
-   * 3. Звонки (GET /api/v4/calls)
+   * 4. Звонки (GET /api/v4/calls)
    */
   async getCalls(fromTimestamp: number, toTimestamp: number): Promise<any[]> {
     const cacheKey = `calls_${fromTimestamp}_${toTimestamp}`

@@ -4,8 +4,39 @@ import { redirect } from 'next/navigation'
 import SettingsClient from './SettingsClient'
 import { Settings } from 'lucide-react'
 import { getTelegramSettings } from '@/utils/telegram'
+import { getAmoCrmSettingsAction } from '@/app/(dashboard)/analytics/daily-report/actions'
 
 export const dynamic = 'force-dynamic'
+
+async function getAvitoFormAccounts() {
+  const accounts = Array.from({ length: 7 }, () => ({
+    name: '',
+    clientId: '',
+    clientSecret: '',
+  }))
+
+  try {
+    const rows = await prisma.systemSetting.findMany({
+      where: { key: { startsWith: 'avito_account_' } },
+    })
+
+    for (const r of rows) {
+      const match = r.key.match(/^avito_account_(\d+)_(.+)$/)
+      if (!match) continue
+      const idx = parseInt(match[1], 10) - 1
+      const field = match[2]
+      if (idx >= 0 && idx < 7) {
+        if (field === 'name') accounts[idx].name = r.value
+        if (field === 'client_id') accounts[idx].clientId = r.value
+        if (field === 'client_secret') accounts[idx].clientSecret = r.value
+      }
+    }
+  } catch (err) {
+    console.error('Ошибка загрузки настроек Авито из БД:', err)
+  }
+
+  return accounts
+}
 
 export default async function SettingsPage() {
   const supabase = await createClient()
@@ -20,7 +51,15 @@ export default async function SettingsPage() {
     redirect('/unauthorized')
   }
 
-  const { chatId, token, ownerTag, warehouseTag, siteUrl, thresholds, topics } = await getTelegramSettings()
+  const [
+    { chatId, token, ownerTag, warehouseTag, siteUrl, thresholds, topics },
+    amoSettings,
+    avitoAccounts,
+  ] = await Promise.all([
+    getTelegramSettings(),
+    getAmoCrmSettingsAction(),
+    getAvitoFormAccounts(),
+  ])
 
   const managers = await prisma.profile.findMany({
     where: {
@@ -80,6 +119,8 @@ export default async function SettingsPage() {
         initialThresholds={thresholds}
         initialTopics={topics}
         initialSiteUrl={siteUrl}
+        initialAmoSettings={amoSettings}
+        initialAvitoAccounts={avitoAccounts}
         initialManagers={initialManagers}
         initialUsers={allUsers}
         currentUserId={user.id}

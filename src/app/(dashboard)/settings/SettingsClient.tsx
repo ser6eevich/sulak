@@ -67,6 +67,15 @@ interface SettingsClientProps {
   initialThresholds?: Record<string, number>
   initialTopics?: Record<string, string>
   initialSiteUrl?: string
+  initialAmoSettings?: {
+    subdomain: string
+    clientId: string
+    clientSecret: string
+    accessToken: string
+    refreshToken: string
+    isConnected: boolean
+  }
+  initialAvitoAccounts?: AvitoAccountInput[]
   initialManagers?: ManagerProfile[]
   initialUsers?: Profile[]
   currentUserId?: string
@@ -122,6 +131,8 @@ export default function SettingsClient({
   initialThresholds = {},
   initialTopics = {},
   initialSiteUrl = '',
+  initialAmoSettings,
+  initialAvitoAccounts,
   initialManagers = [],
   initialUsers = [],
   currentUserId = '',
@@ -130,18 +141,20 @@ export default function SettingsClient({
   const [activeTab, setActiveTab] = useState<'telegram' | 'memo' | 'team' | 'amocrm' | 'avito'>('telegram')
 
   // amoCRM интеграция
-  const [amoSubdomain, setAmoSubdomain] = useState('')
-  const [amoClientId, setAmoClientId] = useState('')
-  const [amoClientSecret, setAmoClientSecret] = useState('')
-  const [amoAccessToken, setAmoAccessToken] = useState('')
-  const [amoRefreshToken, setAmoRefreshToken] = useState('')
+  const [amoSubdomain, setAmoSubdomain] = useState(initialAmoSettings?.subdomain || '')
+  const [amoClientId, setAmoClientId] = useState(initialAmoSettings?.clientId || '')
+  const [amoClientSecret, setAmoClientSecret] = useState(initialAmoSettings?.clientSecret || '')
+  const [amoAccessToken, setAmoAccessToken] = useState(initialAmoSettings?.accessToken || '')
+  const [amoRefreshToken, setAmoRefreshToken] = useState(initialAmoSettings?.refreshToken || '')
   const [amoSaveMsg, setAmoSaveMsg] = useState('')
   const [amoSaveLoading, setAmoSaveLoading] = useState(false)
 
   // Авито: аккаунты и топик отзывов
-  const [avitoReviewsTopicId, setAvitoReviewsTopicId] = useState('')
+  const [avitoReviewsTopicId, setAvitoReviewsTopicId] = useState(initialTopics?.reviews || '')
   const [avitoAccounts, setAvitoAccounts] = useState<AvitoAccountInput[]>(
-    Array.from({ length: 7 }, () => ({ name: '', clientId: '', clientSecret: '' }))
+    initialAvitoAccounts && initialAvitoAccounts.length === 7
+      ? initialAvitoAccounts
+      : Array.from({ length: 7 }, () => ({ name: '', clientId: '', clientSecret: '' }))
   )
   const [avitoSaveMsg, setAvitoSaveMsg] = useState('')
   const [avitoSaveLoading, setAvitoSaveLoading] = useState(false)
@@ -788,7 +801,13 @@ export default function SettingsClient({
                   refreshToken: amoRefreshToken,
                 })
                 setAmoSaveLoading(false)
-                setAmoSaveMsg(res.error ? `Ошибка: ${res.error}` : 'Настройки amoCRM сохранены!')
+                if (res.error) {
+                  setAmoSaveMsg(`Ошибка: ${res.error}`)
+                } else if ((res as any).warning) {
+                  setAmoSaveMsg(`⚠️ ${(res as any).warning}`)
+                } else {
+                  setAmoSaveMsg(`✅ ${(res as any).message || 'Настройки amoCRM сохранены и успешно проверены!'}`)
+                }
               }}
               className="space-y-4"
             >

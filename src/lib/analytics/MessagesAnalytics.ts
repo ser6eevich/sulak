@@ -10,22 +10,25 @@ export interface MessagesStats {
 export class MessagesAnalytics {
   /**
    * Полный расчёт метрик сообщений за выбранную дату
-   * @param dateString Формат 'YYYY-MM-DD' или ISO дата
+   * @param dateString Формат 'YYYY-MM-DD'
    */
   async calculateForDate(dateString: string): Promise<MessagesStats> {
-    const targetDate = new Date(dateString)
+    // Парсим дату с учётом UTC/MSK компонента
+    const parts = dateString.split('-').map(Number)
+    const year = parts[0] || new Date().getFullYear()
+    const month = (parts[1] || 1) - 1
+    const day = parts[2] || new Date().getDate()
 
-    // Вычисляем временные рамки дня (с 00:00:00 до 23:59:59 в московском времени)
-    const startOfDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 0, 0, 0, 0)
-    const endOfDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 23, 59, 59, 999)
+    const startOfDay = new Date(year, month, day, 0, 0, 0, 0)
+    const endOfDay = new Date(year, month, day, 23, 59, 59, 999)
 
     const fromTimestamp = Math.floor(startOfDay.getTime() / 1000)
     const toTimestamp = Math.floor(endOfDay.getTime() / 1000)
 
-    // 1. Загружаем все входящие события сообщений за день и беседы
-    const [events, talks] = await Promise.all([
-      amoClient.getEvents(fromTimestamp, toTimestamp, ['incoming_chat_message']),
-      amoClient.getTalks(),
+    // 1. Загружаем все события сообщений за выбранный день
+    const events = await amoClient.getEvents(fromTimestamp, toTimestamp, [
+      'incoming_chat_message',
+      'talk_created',
     ])
 
     if (!events || events.length === 0) {
@@ -37,48 +40,63 @@ export class MessagesAnalytics {
       }
     }
 
-    // Сопоставление бесед по entity_id / id
+    // Собираем все ID диалогов/сущностей
+    const talkEntityIds = events.map((ev) => ev.entity_id).filter(Boolean)
+
+    // 2. Получаем метаданные бесед по их ID + последние беседы
+    const [talksById, recentTalks] = await Promise.all([
+      amoClient.getTalksByIds(talkEntityIds),
+      amoClient.getTalks(),
+    ])
+
     const talkMap = new Map<number, AmoTalk>()
-    for (const t of talks) {
+    for (const t of recentTalks) {
       if (t.id) talkMap.set(t.id, t)
-      if (t.contact_id) talkMap.set(t.contact_id, t)
+    }
+    for (const t of talksById) {
+      if (t.id) talkMap.set(t.id, t)
     }
 
-    // Сбор уникальных контактов за выбранный день
+    // Собираем ID бесед, созданных строго СЕГОДНЯ
+    const talksCreatedToday = new Set<number>()
+    events.forEach((ev) => {
+      if (ev.type === 'talk_created') {
+        talksCreatedToday.add(ev.entity_id)
+      }
+    })
+
     const newContacts = new Set<number>()
     const repeatContacts = new Set<number>()
-    const allContactsToday = new Set<number>()
+    const incomingEvents = events.filter((ev) => ev.type === 'incoming_chat_message')
 
-    for (const ev of events) {
+    for (const ev of incomingEvents) {
       const talk = talkMap.get(ev.entity_id)
       const contactId = talk?.contact_id || ev.entity_id
 
-      allContactsToday.add(contactId)
-
       if (talk && talk.created_at) {
-        // Если беседа создана ВНУТРИ выбранного дня -> Новые сообщения
+        // Если беседа создана СЕГОДНЯ — это новое сообщение
         if (talk.created_at >= fromTimestamp && talk.created_at <= toTimestamp) {
           newContacts.add(contactId)
-        } else if (talk.created_at < fromTimestamp) {
-          // Если беседа создана РАНЕЕ этого дня -> Повторные сообщения
+        } else {
+          // Если беседа создана ДО текущего дня — это ПОВТОРНОЕ сообщение!
           repeatContacts.add(contactId)
         }
       } else {
-        // Если беседа не найдена в текущем списке бесед, относим к новым по времени события
-        if (ev.created_at >= fromTimestamp && ev.created_at <= toTimestamp) {
+        // Если беседа создана сегодня (зафиксировано событием talk_created)
+        if (talksCreatedToday.has(ev.entity_id)) {
           newContacts.add(contactId)
+        } else {
+          // Иначе это ранее открытый диалог -> повторное сообщение
+          repeatContacts.add(contactId)
         }
       }
     }
 
-    // 3. Новые входящие — уникальные клиенты, которые обратились сегодня впервые
-    const newIncomingCount = newContacts.size
-
     return {
       newMessages: newContacts.size,
       repeatMessages: repeatContacts.size,
-      newIncoming: newIncomingCount,
-      totalEventsCount: events.length,
+      newIncoming: newContacts.size,
+      totalEventsCount: incomingEvents.length,
     }
   }
 }

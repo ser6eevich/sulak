@@ -26,11 +26,18 @@ export async function saveAmoCrmCredentialsAction(data: {
   try {
     const expiresAt = (Date.now() + 86400 * 1000).toString()
 
+    const cleanSubdomain = data.subdomain
+      .trim()
+      .replace(/^https?:\/\//i, '')
+      .replace(/\.amocrm\.ru.*$/i, '')
+      .replace(/\/.*$/, '')
+      .trim()
+
     const upserts = [
       prisma.systemSetting.upsert({
         where: { key: 'amocrm_subdomain' },
-        update: { value: data.subdomain.trim() },
-        create: { key: 'amocrm_subdomain', value: data.subdomain.trim() },
+        update: { value: cleanSubdomain },
+        create: { key: 'amocrm_subdomain', value: cleanSubdomain },
       }),
       prisma.systemSetting.upsert({
         where: { key: 'amocrm_client_id' },
@@ -66,9 +73,27 @@ export async function saveAmoCrmCredentialsAction(data: {
 
     await prisma.$transaction(upserts)
     revalidatePath('/settings')
-    return { success: true }
+
+    // Сразу проверяем подключение после сохранения
+    const { amoClient } = await import('@/lib/analytics/AmoClient')
+    const testRes = await amoClient.testConnection()
+
+    if (!testRes.ok) {
+      return { success: true, warning: `Настройки сохранены, но тест подключения не прошел: ${testRes.error}` }
+    }
+
+    return { success: true, message: `Подключение к аккаунту «${testRes.accountName}» успешно установлено!` }
   } catch (error: unknown) {
     return { error: error instanceof Error ? error.message : 'Ошибка при сохранении ключей amoCRM' }
+  }
+}
+
+export async function testAmoCrmConnectionAction() {
+  try {
+    const { amoClient } = await import('@/lib/analytics/AmoClient')
+    return await amoClient.testConnection()
+  } catch (error: unknown) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Ошибка при проверке amoCRM' }
   }
 }
 
@@ -111,3 +136,4 @@ export async function getAmoCrmSettingsAction() {
     }
   }
 }
+
