@@ -1,5 +1,5 @@
 -- Sulak DB Dump
-CREATE SEQUENCE IF NOT EXISTS orders_number_seq START WITH 1000;
+CREATE SEQUENCE IF NOT EXISTS orders_number_seq START WITH 1;
 SET session_replication_role = 'replica';
 
 

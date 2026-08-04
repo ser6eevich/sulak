@@ -44,8 +44,8 @@ jobs:
             # Применяем миграции базы данных PostgreSQL
             npx prisma migrate deploy
 
-            # Сборка Next.js проекта с выделением памяти
-            NODE_OPTIONS="--max-old-space-size=4096" npm run build
+            # Сборка Next.js проекта с выделением памяти и отключением телеметрии
+            NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS="--max-old-space-size=3072" npm run build
 
             # Перезапуск процесса в PM2
             pm2 restart sulak || pm2 start npm --name "sulak" -- run start

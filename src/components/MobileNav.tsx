@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { logoutAction } from '@/app/login/actions'
 import ThemeToggle from '@/components/ThemeToggle'
-import PushNotificationManager from '@/components/PushNotificationManager'
 import { 
   Users, 
   Hammer, 
@@ -104,7 +103,7 @@ export default function MobileNav({ profile }: MobileNavProps) {
   return (
     <>
       {/* ── Нижняя фиксированная навигационная панель ── */}
-      <nav className="md:hidden flex h-14 pb-[env(safe-area-inset-bottom)] box-content border-t border-[var(--border-primary)] bg-[var(--bg-header)] backdrop-blur-md px-1 select-none shrink-0 relative z-40">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 flex h-14 pb-[env(safe-area-inset-bottom)] border-t border-[var(--border-primary)] bg-[var(--bg-header)] backdrop-blur-md px-1 select-none shadow-lg">
         <div className="flex w-full items-center justify-around">
           {mainTabs.map((item) => {
             const Icon = item.icon
@@ -113,7 +112,7 @@ export default function MobileNav({ profile }: MobileNavProps) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex flex-col items-center justify-center flex-1 h-full min-h-[44px] transition-colors ${
+                className={`flex flex-col items-center justify-center flex-1 h-full min-h-[48px] py-1 transition-colors ${
                   isActive 
                     ? 'text-[var(--accent-primary)] font-medium' 
                     : 'text-[var(--text-tertiary)] active:text-[var(--text-primary)]'
@@ -131,11 +130,7 @@ export default function MobileNav({ profile }: MobileNavProps) {
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
-            onTouchEnd={(e) => {
-              e.preventDefault()
-              setDrawerOpen(true)
-            }}
-            className={`flex flex-col items-center justify-center flex-1 h-full min-h-[44px] transition-colors cursor-pointer touch-manipulation ${
+            className={`flex flex-col items-center justify-center flex-1 h-full min-h-[48px] py-1 transition-colors cursor-pointer ${
               drawerOpen ? 'text-[var(--accent-primary)]' : 'text-[var(--text-tertiary)] active:text-[var(--text-primary)]'
             }`}
           >
@@ -150,7 +145,6 @@ export default function MobileNav({ profile }: MobileNavProps) {
         <div 
           className="md:hidden fixed inset-0 z-[100] flex flex-col"
           onClick={(e) => {
-            // Закрываем при клике на оверлей (фон)
             if (e.target === e.currentTarget) setDrawerOpen(false)
           }}
         >
@@ -162,7 +156,7 @@ export default function MobileNav({ profile }: MobileNavProps) {
           
           {/* Сам drawer — поднимается снизу */}
           <div 
-            className="bg-[var(--bg-surface)] border-t border-[var(--border-primary)] rounded-t-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden"
+            className="bg-[var(--bg-surface)] border-t border-[var(--border-primary)] rounded-t-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden pb-[env(safe-area-inset-bottom)]"
             style={{ animation: 'erp-slide-up 0.2s ease-out' }}
           >
             {/* Шапка Drawer */}
@@ -183,7 +177,6 @@ export default function MobileNav({ profile }: MobileNavProps) {
               </div>
 
               <div className="flex items-center gap-2">
-                <PushNotificationManager />
                 <ThemeToggle />
                 <button
                   onClick={() => setDrawerOpen(false)}

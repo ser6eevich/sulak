@@ -56,6 +56,7 @@ export async function createUserAction(formData: {
       drivers: ['admin', 'owner', 'logistician', 'manager'].includes(role),
       payroll: ['admin', 'owner'].includes(role),
       managers: ['admin', 'owner'].includes(role),
+      mustChangePassword: true,
     }
 
     const passwordHash = bcrypt.hashSync(passwordStr, 10)
@@ -212,5 +213,48 @@ export async function updateUserTelegramAction(userId: string, telegramUsername:
     return { success: true }
   } catch (error: any) {
     return { error: error.message || 'Ошибка сервера' }
+  }
+}
+
+// Сброс пароля сотрудника администратором (с флагом обязательной смены)
+export async function resetUserPasswordAction(userId: string, newPasswordStr: string) {
+  try {
+    const adminUserId = await checkAdminOrOwner()
+
+    if (!newPasswordStr || newPasswordStr.length < 3) {
+      return { error: 'Пароль должен содержать минимум 3 символа' }
+    }
+
+    const targetUser = await prisma.profile.findUnique({ where: { id: userId } })
+    if (!targetUser) return { error: 'Пользователь не найден' }
+
+    const passwordHash = bcrypt.hashSync(newPasswordStr, 10)
+
+    const currentPerms = (targetUser.permissions as Record<string, boolean>) || {}
+    const updatedPerms = { ...currentPerms, mustChangePassword: true }
+
+    await prisma.profile.update({
+      where: { id: userId },
+      data: {
+        passwordHash,
+        permissions: updatedPerms
+      }
+    })
+
+    await prisma.auditLog.create({
+      data: {
+        userId: adminUserId,
+        entityType: 'profile',
+        entityId: userId,
+        action: 'reset_password',
+        comment: `Администратор сбросил пароль пользователю ${targetUser.fullName} и установил флаг обязательной смены пароля`
+      }
+    })
+
+    revalidatePath('/dashboard')
+    revalidatePath('/settings')
+    return { success: true }
+  } catch (error: any) {
+    return { error: error.message || 'Ошибка сервера при сбросе пароля' }
   }
 }

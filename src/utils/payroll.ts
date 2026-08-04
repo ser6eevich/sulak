@@ -139,14 +139,24 @@ export function getEffectiveDeliveryBounds(start: Date, end: Date): { deliverySt
   const dStart = new Date(start)
   const dEnd = new Date(end)
 
-  // Если период регулярный месячный (начинается 1-го числа месяца)
+  let deliveryStart: Date
+  let deliveryEnd: Date
+
+  // Если дата начала периода — 1-е число месяца (например, 1 августа), 
+  // то окно доставок начинается с 30-го числа предыдущего месяца (30 июля)
   if (dStart.getDate() === 1) {
-    // Границы доставки: с 30-го числа предыдущего месяца (00:00:00) по 30-е число текущего месяца (00:00:00)
-    const deliveryStart = new Date(dStart.getFullYear(), dStart.getMonth() - 1, 30, 0, 0, 0, 0)
-    const deliveryEnd   = new Date(dStart.getFullYear(), dStart.getMonth(), 30, 0, 0, 0, 0)
-    return { deliveryStart, deliveryEnd }
+    deliveryStart = new Date(dStart.getFullYear(), dStart.getMonth() - 1, 30, 0, 0, 0, 0)
+  } else {
+    deliveryStart = dStart
   }
 
-  // Для переходных и кастомных периодов
-  return { deliveryStart: dStart, deliveryEnd: dEnd }
+  // Если дата окончания периода — 1-е число месяца (например, 1 августа или 1 сентября),
+  // то отсечка окончания доставок = 30-е число предыдущего месяца (30 июля для 1 августа, 30 августа для 1 сентября)
+  if (dEnd.getDate() === 1) {
+    deliveryEnd = new Date(dEnd.getFullYear(), dEnd.getMonth() - 1, 30, 0, 0, 0, 0)
+  } else {
+    deliveryEnd = dEnd
+  }
+
+  return { deliveryStart, deliveryEnd }
 }

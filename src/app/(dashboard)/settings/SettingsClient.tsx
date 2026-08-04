@@ -1,14 +1,14 @@
 'use client'
 
 import React, { useState, useTransition } from 'react'
-import PushNotificationManager from '@/components/PushNotificationManager'
 import { saveTelegramSettingsAction, testTelegramNotificationAction } from './actions'
 import { 
   createUserAction, 
   updateUserRoleAction, 
   updateUserPermissionsAction, 
   toggleUserStatusAction,
-  updateUserTelegramAction
+  updateUserTelegramAction,
+  resetUserPasswordAction
 } from '@/app/(dashboard)/dashboard/actions'
 import { 
   Check, 
@@ -20,6 +20,7 @@ import {
   Save, 
   Sparkles,
   Send,
+  X,
   Clock,
   BookOpen,
   Users,
@@ -155,6 +156,31 @@ export default function SettingsClient({
   const [isPending, startTransition] = useTransition()
   const [expandedUserPerms, setExpandedUserPerms] = useState<Record<string, boolean>>({})
   
+  // Модалка сброса пароля пользователя
+  const [resetPasswordUser, setResetPasswordUser] = useState<Profile | null>(null)
+  const [tempPassword, setTempPassword] = useState('')
+  const [resetPasswordMsg, setResetPasswordMsg] = useState('')
+
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!resetPasswordUser || !tempPassword) return
+    setResetPasswordMsg('')
+
+    startTransition(async () => {
+      const res = await resetUserPasswordAction(resetPasswordUser.id, tempPassword)
+      if (res.error) {
+        setResetPasswordMsg(`Ошибка: ${res.error}`)
+      } else {
+        setResetPasswordMsg('Пароль сброшен! Сотрудник обязан будет сменить его при следующем входе.')
+        setTimeout(() => {
+          setResetPasswordUser(null)
+          setTempPassword('')
+          setResetPasswordMsg('')
+        }, 1800)
+      }
+    })
+  }
+
   // Модалка создания нового пользователя
   const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false)
   const [newEmail, setNewEmail] = useState('')
@@ -337,27 +363,6 @@ export default function SettingsClient({
       {/* Вкладка 1: Telegram & Пороги простоя */}
       {activeTab === 'telegram' && (
         <div className="space-y-6">
-          {/* Блок Push-уведомлений на iPhone */}
-          <div className="erp-card p-4 sm:p-6 space-y-3 bg-gradient-to-r from-indigo-500/5 to-purple-500/5 border border-indigo-500/20">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="h-9 w-9 rounded-md bg-[var(--accent-primary)] text-white flex items-center justify-center font-bold">
-                  🔔
-                </div>
-                <div>
-                  <h3 className="text-xs sm:text-sm font-semibold text-[var(--text-primary)]">
-                    Push-уведомления на iPhone и Android
-                  </h3>
-                  <p className="text-[11px] text-[var(--text-secondary)]">
-                    Получайте всплывающие нативные уведомления со звуком на экран блокировки
-                  </p>
-                </div>
-              </div>
-              <div className="shrink-0">
-                <PushNotificationManager />
-              </div>
-            </div>
-          </div>
 
           <div className="erp-card p-6 space-y-6">
           <div className="flex items-center justify-between pb-4 border-b border-[var(--border-primary)]">
@@ -760,13 +765,30 @@ export default function SettingsClient({
                             )}
                           </td>
                           <td className="p-3 text-center">
-                            <button
-                              onClick={() => toggleExpandPerms(u.id)}
-                              className="erp-button-secondary py-1 px-2.5 text-[11px] cursor-pointer inline-flex items-center gap-1"
-                            >
-                              <SettingsIcon className="h-3 w-3 text-[var(--accent-primary)]" />
-                              Настроить доступ
-                            </button>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                onClick={() => toggleExpandPerms(u.id)}
+                                className="erp-button-secondary py-1 px-2.5 text-[11px] cursor-pointer inline-flex items-center gap-1"
+                              >
+                                <SettingsIcon className="h-3 w-3 text-[var(--accent-primary)]" />
+                                Настроить доступ
+                              </button>
+
+                              {!isSelf && (
+                                <button
+                                  onClick={() => {
+                                    setResetPasswordUser(u)
+                                    setTempPassword('')
+                                    setResetPasswordMsg('')
+                                  }}
+                                  title="Установить новый временный пароль сотруднику"
+                                  className="erp-button-secondary py-1 px-2 text-[11px] cursor-pointer inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 border-amber-500/20"
+                                >
+                                  <Key className="h-3 w-3" />
+                                  Пароль
+                                </button>
+                              )}
+                            </div>
                           </td>
                           <td className="p-3 text-center">
                             {isSelf ? (
@@ -939,6 +961,81 @@ export default function SettingsClient({
                   className="erp-button-primary text-xs disabled:opacity-50"
                 >
                   {userModalLoading ? 'Создание...' : 'Создать сотрудника'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Модальное окно сброса пароля пользователя */}
+      {resetPasswordUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+          <div className="w-full max-w-md bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-2xl shadow-2xl p-6 space-y-4 text-left">
+            <div className="flex items-center justify-between border-b border-[var(--border-primary)] pb-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--text-primary)] flex items-center gap-2">
+                <Key className="h-4 w-4 text-amber-500" />
+                Сброс пароля: {resetPasswordUser.fullName}
+              </h3>
+              <button
+                onClick={() => setResetPasswordUser(null)}
+                className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+              Укажите новый временный пароль. При следующем входе в систему сотруднику <span className="font-semibold text-[var(--text-primary)]">{resetPasswordUser.fullName}</span> вылезет не закрываемое окно с требованием изменить этот пароль на собственный.
+            </p>
+
+            {resetPasswordMsg && (
+              <div className={`p-3 rounded-lg text-xs font-medium ${resetPasswordMsg.startsWith('Ошибка') ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-[var(--success-soft)] text-[var(--success)]'}`}>
+                {resetPasswordMsg}
+              </div>
+            )}
+
+            <form onSubmit={handleResetPasswordSubmit} className="space-y-4 pt-1">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-[var(--text-primary)]">
+                  Новый временный пароль <span className="text-[var(--danger)]">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  minLength={3}
+                  value={tempPassword}
+                  onChange={e => setTempPassword(e.target.value)}
+                  placeholder="Например: 123456"
+                  className="erp-input text-xs w-full font-mono font-bold"
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setResetPasswordUser(null)}
+                  className="erp-button-secondary text-xs cursor-pointer"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  disabled={isPending || !tempPassword}
+                  className="erp-button-primary text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isPending ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      Сохранение...
+                    </>
+                  ) : (
+                    <>
+                      <Key className="h-3.5 w-3.5" />
+                      Установить пароль
+                    </>
+                  )}
                 </button>
               </div>
             </form>

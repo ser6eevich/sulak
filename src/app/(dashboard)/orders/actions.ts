@@ -846,21 +846,20 @@ ${priceBlock}${commentLine}`
       }
     }
 
-    const path = await import('path')
-    const fs = await import('fs')
-
     const isLocalPath = (url: string) =>
       url.startsWith('/uploads/') || url.startsWith('/public/')
 
     const readLocalFile = (url: string): Buffer | null => {
       try {
-        const relative = url.startsWith('/uploads/')
-          ? `public${url}`
+        const fs = require('fs')
+        const path = require('path')
+        const cleanPath = url.startsWith('/uploads/')
+          ? `uploads/${url.slice('/uploads/'.length)}`
           : url.startsWith('/public/')
-            ? url.slice(1)
+            ? url.slice('/public/'.length)
             : null
-        if (!relative) return null
-        const fullPath = path.join(process.cwd(), relative)
+        if (!cleanPath) return null
+        const fullPath = path.join(process.cwd(), 'public', cleanPath)
         if (!fs.existsSync(fullPath)) return null
         return fs.readFileSync(fullPath)
       } catch {

@@ -6,10 +6,9 @@ import MobileNav from '@/components/MobileNav'
 import ThemeToggle from '@/components/ThemeToggle'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import PresencePing from '@/components/PresencePing'
+import MustChangePasswordModal from '@/components/MustChangePasswordModal'
 import { getRoleLabel } from '@/utils/roles'
 import { Layers, ShieldCheck } from 'lucide-react'
-
-import PushNotificationManager from '@/components/PushNotificationManager'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,6 +41,10 @@ export default async function DashboardLayout({
     permissions: profileRecord.permissions,
   }
 
+  const mustChangePassword = typeof profileRecord.permissions === 'object' && 
+    profileRecord.permissions !== null && 
+    (profileRecord.permissions as Record<string, any>).mustChangePassword === true
+
   return (
     <ThemeProvider>
       <div className="flex h-screen h-[100dvh] bg-[var(--bg-app)] text-[var(--text-primary)] overflow-hidden font-sans">
@@ -63,9 +66,6 @@ export default async function DashboardLayout({
             </div>
 
             <div className="flex items-center gap-3 shrink-0">
-              {/* Push Notifications button */}
-              <PushNotificationManager />
-
               {/* Live Status indicator */}
               <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[var(--success-soft)] border border-[var(--success)]/20 text-[10px] font-medium text-[var(--success)]">
                 <span className="h-1.5 w-1.5 rounded-full bg-[var(--success)] animate-pulse" />
@@ -95,7 +95,7 @@ export default async function DashboardLayout({
           </header>
 
           {/* Main Content Area */}
-          <main className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 max-w-full bg-[var(--bg-app)] p-3 sm:p-4 md:p-6 lg:p-8">
+          <main className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 max-w-full bg-[var(--bg-app)] p-3 sm:p-4 md:p-6 lg:p-8 pb-20 md:pb-6">
             {children}
           </main>
 
@@ -103,6 +103,12 @@ export default async function DashboardLayout({
           <MobileNav profile={profile} />
         </div>
       </div>
+      
+      {/* Модалка принудительной смены временного пароля */}
+      {mustChangePassword && (
+        <MustChangePasswordModal profileName={profile.full_name} />
+      )}
+
       {/* Трекинг онлайн-присутствия (невидимый) */}
       <PresencePing />
     </ThemeProvider>

@@ -94,3 +94,57 @@ export async function logoutAction() {
   await deleteSessionCookie()
   redirect('/login')
 }
+
+export async function changeOwnPasswordAction(newPasswordStr: string) {
+  try {
+    const { getCurrentUserSession } = await import('@/lib/auth')
+    const session = await getCurrentUserSession()
+    if (!session) return { error: 'Сессия истекла, войдите заново' }
+
+    if (!newPasswordStr || newPasswordStr.length < 3) {
+      return { error: 'Пароль должен содержать не менее 3 символов' }
+    }
+
+    const profile = await prisma.profile.findUnique({
+      where: { id: session.userId }
+    })
+
+    if (!profile) return { error: 'Пользователь не найден' }
+
+    const passwordHash = bcrypt.hashSync(newPasswordStr, 10)
+
+    const currentPerms = (profile.permissions as Record<string, boolean>) || {}
+    const updatedPerms = { ...currentPerms }
+    delete updatedPerms.mustChangePassword
+
+    await prisma.profile.update({
+      where: { id: session.userId },
+      data: {
+        passwordHash,
+        permissions: updatedPerms
+      }
+    })
+
+    // Обновляем сессионную куку
+    await setSessionCookie({
+      userId: profile.id,
+      email: profile.email,
+      role: profile.role,
+      permissions: updatedPerms,
+    })
+
+    await prisma.auditLog.create({
+      data: {
+        userId: profile.id,
+        entityType: 'profile',
+        entityId: profile.id,
+        action: 'change_own_password',
+        comment: `Пользователь ${profile.fullName} успешно изменил временный пароль на собственный`
+      }
+    })
+
+    return { success: true }
+  } catch (error: any) {
+    return { error: error.message || 'Не удалось обновить пароль' }
+  }
+}
