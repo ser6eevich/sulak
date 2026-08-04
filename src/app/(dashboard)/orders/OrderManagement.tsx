@@ -335,6 +335,24 @@ export default function OrderManagement({
     }
   }
 
+  // Запрос на подтверждение закрытия модалки создания/редактирования заказа
+  const handleRequestCloseOrderModal = () => {
+    const isFormDirty =
+      clientName.trim() !== '' ||
+      clientPhone.trim() !== '' ||
+      deliveryAddress.trim() !== '' ||
+      comment.trim() !== '' ||
+      editingOrderId !== null ||
+      orderItemsList.some(item => (item.variantId && item.variantId !== '') || (item.productId && item.productId !== ''))
+
+    if (isFormDirty) {
+      const confirmClose = window.confirm('Вы уверены, что хотите закрыть окно оформления заказа? Введённые данные не сохранятся.')
+      if (!confirmClose) return
+    }
+    setCreateModalOpen(false)
+    resetOrderForm()
+  }
+
   // Глобальное закрытие модальных окон по клавише Escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -345,8 +363,7 @@ export default function OrderManagement({
         } else if (selectingItemIndex !== null) {
           setSelectingItemIndex(null)
         } else if (createModalOpen) {
-          setCreateModalOpen(false)
-          resetOrderForm()
+          handleRequestCloseOrderModal()
         } else if (selectedOrder) {
           closeOrderDetails()
         }
@@ -355,7 +372,7 @@ export default function OrderManagement({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [quickStatusModalOpen, selectingItemIndex, createModalOpen, selectedOrder])
+  }, [quickStatusModalOpen, selectingItemIndex, createModalOpen, selectedOrder, clientName, clientPhone, deliveryAddress, comment, editingOrderId, orderItemsList])
   const [errorMsg, setErrorMsg] = useState('')
 
   // Фото по подзаказам при создании заказа: { subOrderIndex: url }
@@ -1753,8 +1770,7 @@ export default function OrderManagement({
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--bg-overlay)] backdrop-blur-xs"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
-              setCreateModalOpen(false)
-              resetOrderForm()
+              handleRequestCloseOrderModal()
             }
           }}
         >
@@ -1766,7 +1782,7 @@ export default function OrderManagement({
                   : 'Оформление нового заказа'}
               </h3>
               <button
-                onClick={() => { setCreateModalOpen(false); resetOrderForm() }}
+                onClick={handleRequestCloseOrderModal}
                 className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] rounded transition-colors cursor-pointer"
               >
                 <X className="h-4 w-4" />
@@ -2335,7 +2351,7 @@ export default function OrderManagement({
               <div className="p-4 border-t border-[var(--border-primary)] bg-[var(--bg-table-header)] flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => { setCreateModalOpen(false); resetOrderForm() }}
+                  onClick={handleRequestCloseOrderModal}
                   className="erp-button-secondary cursor-pointer"
                 >
                   Отмена
