@@ -3,6 +3,7 @@
 import React, { useState, useTransition } from 'react'
 import { saveTelegramSettingsAction, testTelegramNotificationAction } from './actions'
 import { saveAmoCrmCredentialsAction } from '@/app/(dashboard)/analytics/daily-report/actions'
+import { saveAvitoSettingsAction, AvitoAccountInput } from './actions'
 import { 
   createUserAction, 
   updateUserRoleAction, 
@@ -35,7 +36,8 @@ import {
   Settings as SettingsIcon,
   Eye,
   EyeOff,
-  BarChart3
+  BarChart3,
+  Star
 } from 'lucide-react'
 
 interface Profile {
@@ -125,7 +127,7 @@ export default function SettingsClient({
   currentUserId = '',
   userRole = 'admin'
 }: SettingsClientProps) {
-  const [activeTab, setActiveTab] = useState<'telegram' | 'memo' | 'team' | 'amocrm'>('telegram')
+  const [activeTab, setActiveTab] = useState<'telegram' | 'memo' | 'team' | 'amocrm' | 'avito'>('telegram')
 
   // amoCRM интеграция
   const [amoSubdomain, setAmoSubdomain] = useState('')
@@ -135,6 +137,14 @@ export default function SettingsClient({
   const [amoRefreshToken, setAmoRefreshToken] = useState('')
   const [amoSaveMsg, setAmoSaveMsg] = useState('')
   const [amoSaveLoading, setAmoSaveLoading] = useState(false)
+
+  // Авито: аккаунты и топик отзывов
+  const [avitoReviewsTopicId, setAvitoReviewsTopicId] = useState('')
+  const [avitoAccounts, setAvitoAccounts] = useState<AvitoAccountInput[]>(
+    Array.from({ length: 7 }, () => ({ name: '', clientId: '', clientSecret: '' }))
+  )
+  const [avitoSaveMsg, setAvitoSaveMsg] = useState('')
+  const [avitoSaveLoading, setAvitoSaveLoading] = useState(false)
 
   // Настройки Telegram
   const [chatId, setChatId] = useState(initialChatId)
@@ -370,6 +380,18 @@ export default function SettingsClient({
         >
           <BarChart3 className="h-4 w-4 text-[var(--accent-primary)]" />
           amoCRM
+        </button>
+
+        <button
+          onClick={() => setActiveTab('avito')}
+          className={`flex items-center gap-2 px-5 py-3 text-xs font-semibold uppercase tracking-wider rounded-t-md border-b-2 transition-all cursor-pointer ${
+            activeTab === 'avito'
+              ? 'border-[var(--accent-primary)] text-[var(--accent-primary)] bg-[var(--accent-soft)]/30 font-bold'
+              : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+          }`}
+        >
+          <Star className="h-4 w-4 text-[var(--accent-primary)]" />
+          Авито · Отзывы
         </button>
 
         <button
@@ -844,6 +866,148 @@ export default function SettingsClient({
                     <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Сохранение...</>
                   ) : (
                     <><Save className="h-3.5 w-3.5" /> Сохранить настройки amoCRM</>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Вкладка Авито · Отзывы */}
+      {activeTab === 'avito' && (
+        <div className="space-y-6">
+          <div className="erp-card p-6 space-y-6">
+            <div className="flex items-center gap-3 pb-4 border-b border-[var(--border-primary)]">
+              <div className="h-9 w-9 rounded-md bg-[var(--accent-soft)] text-[var(--accent-primary)] flex items-center justify-center">
+                <Star className="h-4.5 w-4.5" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-[var(--text-primary)]">Мониторинг отзывов Авито</h2>
+                <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                  Новые отзывы на ваших аккаунтах будут автоматически приходить в Telegram-тему «Отзывы»
+                </p>
+              </div>
+            </div>
+
+            {avitoSaveMsg && (
+              <div className={`p-3 rounded-xl text-xs font-medium ${avitoSaveMsg.startsWith('Ошибка') ? 'bg-[var(--danger-soft)] text-[var(--danger)]' : 'bg-[var(--success-soft)] text-[var(--success)]'}`}>
+                {avitoSaveMsg}
+              </div>
+            )}
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault()
+                setAvitoSaveLoading(true)
+                setAvitoSaveMsg('')
+                const res = await saveAvitoSettingsAction(avitoReviewsTopicId, avitoAccounts)
+                setAvitoSaveLoading(false)
+                setAvitoSaveMsg(res.error ? `Ошибка: ${res.error}` : '✅ Настройки Авито сохранены!')
+              }}
+              className="space-y-6"
+            >
+              {/* Telegram тема «Отзывы» */}
+              <div className="p-4 bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded-lg space-y-3">
+                <h3 className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wider flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4 text-[var(--accent-primary)]" />
+                  Telegram-тема для уведомлений об отзывах
+                </h3>
+                <p className="text-[11px] text-[var(--text-secondary)]">
+                  Укажи ID темы «Отзывы» из вашего Telegram-чата. Чтобы узнать ID: откройте тему → напишите любое сообщение → перешли его <code className="font-mono">@userinfobot</code> — он покажет <code className="font-mono">message_thread_id</code>.
+                </p>
+                <div className="max-w-xs">
+                  <label className="block text-xs font-semibold text-[var(--text-primary)] mb-1">
+                    ID темы «Отзывы» <span className="text-[var(--danger)]">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={avitoReviewsTopicId}
+                    onChange={e => setAvitoReviewsTopicId(e.target.value)}
+                    placeholder="например: 42"
+                    className="erp-input w-full font-mono text-xs"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Аккаунты Авито */}
+              <div className="p-4 bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded-lg space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wider flex items-center gap-2">
+                    <Star className="h-4 w-4 text-[var(--accent-primary)]" />
+                    Аккаунты Авито (до 7)
+                  </h3>
+                  <p className="text-[10px] text-[var(--text-tertiary)]">
+                    Ключи: Настройки Авито → Профессиональный раздел → API
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  {avitoAccounts.map((acc, idx) => (
+                    <div key={idx} className="p-3 bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-md space-y-2">
+                      <p className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider">
+                        Аккаунт {idx + 1}
+                      </p>
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        <div>
+                          <label className="block text-[10px] font-medium text-[var(--text-tertiary)] mb-1">Название</label>
+                          <input
+                            type="text"
+                            value={acc.name}
+                            onChange={e => {
+                              const updated = [...avitoAccounts]
+                              updated[idx] = { ...updated[idx], name: e.target.value }
+                              setAvitoAccounts(updated)
+                            }}
+                            placeholder="Например: Зоя Авито"
+                            className="erp-input w-full text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-medium text-[var(--text-tertiary)] mb-1">Client ID</label>
+                          <input
+                            type="text"
+                            value={acc.clientId}
+                            onChange={e => {
+                              const updated = [...avitoAccounts]
+                              updated[idx] = { ...updated[idx], clientId: e.target.value }
+                              setAvitoAccounts(updated)
+                            }}
+                            placeholder="avito.ru/app/12345…"
+                            className="erp-input w-full font-mono text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-medium text-[var(--text-tertiary)] mb-1">Client Secret</label>
+                          <input
+                            type="password"
+                            value={acc.clientSecret}
+                            onChange={e => {
+                              const updated = [...avitoAccounts]
+                              updated[idx] = { ...updated[idx], clientSecret: e.target.value }
+                              setAvitoAccounts(updated)
+                            }}
+                            placeholder="••••••••••••"
+                            className="erp-input w-full font-mono text-xs"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  type="submit"
+                  disabled={avitoSaveLoading}
+                  className="erp-button-primary text-xs flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {avitoSaveLoading ? (
+                    <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Сохранение...</>
+                  ) : (
+                    <><Save className="h-3.5 w-3.5" /> Сохранить настройки Авито</>
                   )}
                 </button>
               </div>

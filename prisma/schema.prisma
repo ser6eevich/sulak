@@ -204,3 +204,14 @@ model SystemSetting {
 
   @@map("system_settings")
 }
+
+// Таблица для хранения ID уже отправленных отзывов Авито (дедупликация уведомлений)
+model AvitoSentReview {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reviewId    String   @unique @map("review_id")   // ID отзыва из API Авито
+  accountName String   @map("account_name")         // Название аккаунта Авито
+  sentAt      DateTime @default(now()) @map("sent_at") @db.Timestamptz
+
+  @@map("avito_sent_reviews")
+}
+

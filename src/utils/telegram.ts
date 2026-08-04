@@ -9,6 +9,7 @@ export interface TelegramTopics {
   delivered?: string
   cancelled?: string
   general?: string
+  reviews?: string
 }
 
 export async function getTelegramSettings() {
@@ -26,6 +27,7 @@ export async function getTelegramSettings() {
     delivered: '',
     cancelled: '',
     general: '',
+    reviews: '',
   }
 
   const thresholds: Record<string, number> = {

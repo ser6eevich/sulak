@@ -146,3 +146,88 @@ export async function testTelegramNotificationAction(chatId: string, botToken: s
     return { error: error instanceof Error ? error.message : 'Ошибка отправки в Telegram' }
   }
 }
+
+// ─────────────────────────────────────────────────────────────
+// Авито: сохранение аккаунтов и топика «Отзывы»
+// ─────────────────────────────────────────────────────────────
+
+export interface AvitoAccountInput {
+  name: string
+  clientId: string
+  clientSecret: string
+}
+
+export async function saveAvitoSettingsAction(
+  reviewsTopicId: string,
+  accounts: AvitoAccountInput[]
+): Promise<{ error?: string; success?: boolean }> {
+  try {
+    await checkAdminOrOwner()
+
+    const upserts: Promise<any>[] = []
+
+    // Сохраняем ID темы «Отзывы»
+    upserts.push(
+      prisma.systemSetting.upsert({
+        where: { key: 'telegram_topic_reviews' },
+        update: { value: reviewsTopicId.trim() },
+        create: { key: 'telegram_topic_reviews', value: reviewsTopicId.trim() },
+      })
+    )
+
+    // Сначала удаляем старые записи аккаунтов (1..7)
+    for (let i = 1; i <= 7; i++) {
+      for (const field of ['name', 'client_id', 'client_secret']) {
+        upserts.push(
+          prisma.systemSetting.deleteMany({
+            where: { key: `avito_account_${i}_${field}` },
+          })
+        )
+      }
+    }
+
+    await Promise.all(upserts)
+
+    // Сохраняем новые аккаунты
+    const accountUpserts: Promise<any>[] = []
+    accounts.forEach((acc, idx) => {
+      const i = idx + 1
+      if (!acc.name && !acc.clientId) return
+      if (acc.name) {
+        accountUpserts.push(
+          prisma.systemSetting.upsert({
+            where: { key: `avito_account_${i}_name` },
+            update: { value: acc.name.trim() },
+            create: { key: `avito_account_${i}_name`, value: acc.name.trim() },
+          })
+        )
+      }
+      if (acc.clientId) {
+        accountUpserts.push(
+          prisma.systemSetting.upsert({
+            where: { key: `avito_account_${i}_client_id` },
+            update: { value: acc.clientId.trim() },
+            create: { key: `avito_account_${i}_client_id`, value: acc.clientId.trim() },
+          })
+        )
+      }
+      if (acc.clientSecret) {
+        accountUpserts.push(
+          prisma.systemSetting.upsert({
+            where: { key: `avito_account_${i}_client_secret` },
+            update: { value: acc.clientSecret.trim() },
+            create: { key: `avito_account_${i}_client_secret`, value: acc.clientSecret.trim() },
+          })
+        )
+      }
+    })
+
+    await Promise.all(accountUpserts)
+
+    revalidatePath('/settings')
+    return { success: true }
+  } catch (error: unknown) {
+    return { error: error instanceof Error ? error.message : 'Ошибка сохранения настроек Авито' }
+  }
+}
+
