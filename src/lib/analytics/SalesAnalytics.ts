@@ -59,7 +59,8 @@ export class SalesAnalytics {
     let grandTotalCents = 0
 
     for (const order of orders) {
-      const orderTotalCents = order.totalPrice - order.discount + order.deliveryPrice + order.assemblyPrice
+      // Для отчёта менеджеров считаем только стоимость товара (сумма позиций минус скидка), не включая доставку
+      const orderTotalCents = Math.max(0, order.totalPrice - order.discount)
       grandTotalCents += orderTotalCents
 
       const managerName = order.seller?.fullName
