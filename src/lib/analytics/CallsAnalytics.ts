@@ -20,41 +20,55 @@ export class CallsAnalytics {
     const toTimestamp = Math.floor(endOfDay.getTime() / 1000)
 
     try {
-      // 1. Загружаем звонки из REST API /api/v4/calls
-      // 2. Также загружаем события звонков из /api/v4/events (для интеграций телефоний, пишущих в события)
-      const [calls, callEvents] = await Promise.all([
+      // 1. Загружаем звонки из REST API /api/v4/calls по created_at и по updated_at
+      // 2. Загружаем все события дня из /api/v4/events
+      const [callsCreated, callsUpdated, allEvents] = await Promise.all([
         amoClient.getCalls(fromTimestamp, toTimestamp),
-        amoClient.getEvents(fromTimestamp, toTimestamp, [
-          'incoming_call',
-          'outgoing_call',
-          'call_in',
-          'call_out',
-        ]),
+        amoClient.getCallsByUpdatedAt(fromTimestamp, toTimestamp),
+        amoClient.getEvents(fromTimestamp, toTimestamp, []),
       ])
+
+      // Объединяем звонки без дублей
+      const callMap = new Map<number, any>()
+      ;(callsCreated || []).forEach((c: any) => { if (c.id) callMap.set(c.id, c) })
+      ;(callsUpdated || []).forEach((c: any) => { if (c.id) callMap.set(c.id, c) })
+      const calls = Array.from(callMap.values())
 
       let incomingCount = 0
       let missedCount = 0
-      let totalCount = (calls?.length || 0)
+      let totalCount = calls.length
 
-      if (calls && calls.length > 0) {
+      if (calls.length > 0) {
         calls.forEach((c: any) => {
-          const dir = String(c.direction || c.type || '').toLowerCase()
-          const isIncoming = dir === 'in' || dir === 'inbound' || dir === 'incoming' || c.call_result === 'answered'
-          const isMissed = dir === 'in' && (c.call_result === 'no_answer' || c.duration === 0)
+          const dir = String(c.direction || c.type || c.call_direction || '').toLowerCase()
+          const isOutgoing = dir === 'out' || dir === 'outbound' || dir === 'outgoing' || dir === '2'
+          const isIncoming = !isOutgoing || c.call_result === 'answered'
+          const isMissed = isIncoming && (c.call_result === 'no_answer' || c.duration === 0 || c.call_status === 6)
 
           if (isIncoming) incomingCount++
           if (isMissed) missedCount++
         })
       }
 
-      // Если в /api/v4/calls звонков мало или 0, проверяем события телефонии
-      if (callEvents && callEvents.length > 0) {
-        const incomingEvents = callEvents.filter((ev) =>
-          ['incoming_call', 'call_in'].includes(ev.type)
+      // Дополнительно анализируем события телефонии в ленте amoCRM (/api/v4/events)
+      const callEvents = (allEvents || []).filter((ev) => {
+        const type = String(ev.type || '').toLowerCase()
+        return (
+          type.includes('call') ||
+          type.includes('phone') ||
+          type === 'call_in' ||
+          type === 'incoming_call'
         )
-        // Если из событий пришло больше входящих звонков, используем их
-        if (incomingEvents.length > incomingCount) {
-          incomingCount = incomingEvents.length
+      })
+
+      if (callEvents.length > 0) {
+        const incomingCallEvents = callEvents.filter((ev) => {
+          const type = String(ev.type || '').toLowerCase()
+          return !type.includes('outgoing') && type !== 'call_out'
+        })
+
+        if (incomingCallEvents.length > incomingCount) {
+          incomingCount = incomingCallEvents.length
         }
         if (callEvents.length > totalCount) {
           totalCount = callEvents.length

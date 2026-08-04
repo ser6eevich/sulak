@@ -194,7 +194,7 @@ export class AmoClient {
   async getEvents(
     fromTimestamp: number,
     toTimestamp: number,
-    eventTypes: string[] = ['incoming_chat_message']
+    eventTypes: string[] = []
   ): Promise<AmoEvent[]> {
     const cacheKey = `events_${fromTimestamp}_${toTimestamp}_${eventTypes.join(',')}`
     const cached = cacheService.get<AmoEvent[]>(cacheKey)
@@ -349,7 +349,7 @@ export class AmoClient {
   }
 
   /**
-   * 6. Звонки (GET /api/v4/calls)
+   * 6. Звонки по created_at (GET /api/v4/calls)
    */
   async getCalls(fromTimestamp: number, toTimestamp: number): Promise<any[]> {
     const cacheKey = `calls_${fromTimestamp}_${toTimestamp}`
@@ -357,6 +357,22 @@ export class AmoClient {
     if (cached) return cached
 
     const endpoint = `/api/v4/calls?filter[created_at][from]=${fromTimestamp}&filter[created_at][to]=${toTimestamp}&limit=250`
+    const data = await this.request<{ _embedded?: { calls?: any[] } }>(endpoint)
+    const calls = data?._embedded?.calls || []
+
+    cacheService.set(cacheKey, calls, 300000)
+    return calls
+  }
+
+  /**
+   * 7. Звонки по updated_at (GET /api/v4/calls)
+   */
+  async getCallsByUpdatedAt(fromTimestamp: number, toTimestamp: number): Promise<any[]> {
+    const cacheKey = `calls_upd_${fromTimestamp}_${toTimestamp}`
+    const cached = cacheService.get<any[]>(cacheKey)
+    if (cached) return cached
+
+    const endpoint = `/api/v4/calls?filter[updated_at][from]=${fromTimestamp}&filter[updated_at][to]=${toTimestamp}&limit=250`
     const data = await this.request<{ _embedded?: { calls?: any[] } }>(endpoint)
     const calls = data?._embedded?.calls || []
 
