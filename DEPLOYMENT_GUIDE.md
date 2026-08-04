@@ -98,24 +98,25 @@ nano .env
 ```env
 # ── Среда окружения ──
 NODE_ENV=production
-NEXT_PUBLIC_APP_URL=https://sulak.ru
+NEXT_PUBLIC_APP_URL=https://stoly.srp-lsp.ru
 
-# ── База данных PostgreSQL (создали на Шаге 2) ──
-DATABASE_URL="postgresql://sulak_user:ВАШ_ПАРОЛЬ_БД@localhost:5432/sulak_db?schema=public"
+# ── База данных PostgreSQL ──
+DATABASE_URL="postgresql://sulak_user:VanyayA1@localhost:5432/sulak_db?schema=public"
 
-# ── S3 Облачное хранилище (для фото) ──
-S3_BUCKET_NAME=имя-вашего-бакета
-S3_ACCESS_KEY_ID=ваш-access-key
-S3_SECRET_ACCESS_KEY=ваш-secret-key
-S3_ENDPOINT=https://storage.yandexcloud.net # или ссылка вашего S3 провайдера
-S3_PUBLIC_URL_PREFIX=https://публичная-ссылка-на-бакет # или cdn
+# ── S3 Облачное хранилище Timeweb Cloud (для фото) ──
+S3_BUCKET_NAME=stoly
+S3_REGION=ru-1
+S3_ACCESS_KEY_ID=LGU722WUDGASIHZP39WL
+S3_SECRET_ACCESS_KEY=bJ8gDJpwn2Q5BImd7tbnCthI5Vbt5vljDl84YAzB
+S3_ENDPOINT=https://s3.twcstorage.ru
+S3_PUBLIC_URL_PREFIX=https://stoly.s3.twcstorage.ru
 
 # ── Telegram Уведомления ──
 TELEGRAM_BOT_TOKEN=8740932255:AAFr6dNDwAUgDobwgUNIzQDc8SAV3Ks21TM
 TELEGRAM_CHAT_ID=1803301964
 
-# ── Защита крон-задач (любое случайное сложное слово) ──
-CRON_SECRET=MySuperSecretCronKey2026
+# ── Защита крон-задач ──
+CRON_SECRET=SulakCronSecretKey2026!
 
 # ── Web Push Уведомления (iOS PWA) ──
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=BFdlQdGaOr2s2EZFkpbh8fAg0g_yhTpTkkqGofWUQlkp3KastoOIIN9jCEKpCwRMv6wQvjyNb32RExefKams7yE
@@ -162,11 +163,11 @@ pm2 status
 sudo nano /etc/nginx/sites-available/sulak
 ```
 
-Вставьте следующий текст *(замените `sulak.ru` и `www.sulak.ru` на ваш реальный домен)*:
+Вставьте следующий текст:
 
 ```nginx
 server {
-    server_name sulak.ru www.sulak.ru;
+    server_name stoly.srp-lsp.ru;
 
     client_max_body_size 20M;
 
@@ -195,7 +196,7 @@ sudo systemctl reload nginx
 ### 5.3. Выпускаем бесплатный защищённый SSL-сертификат (`https://`):
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d sulak.ru -d www.sulak.ru
+sudo certbot --nginx -d stoly.srp-lsp.ru
 ```
 *(Certbot попросит ввести ваш email и согласиться с условиями [нажать Y]. После этого ваш сайт начнёт открываться по `https://sulak.ru`).*
 
