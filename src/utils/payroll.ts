@@ -133,29 +133,46 @@ export function getPeriodBoundsForDate(date: Date): { startDate: Date; endDate: 
  * Рассчитывает границы времени доставки для отчётного периода.
  * Зарплата рассчитывается примерно 30-го числа каждого месяца, 
  * поэтому заказы, доставленные 30-го или 31-го числа, автоматически переходят 
- * в окно расчёта следующего месяца (как надбавка за прошлые заказы).
+ * в окно расчёта следующего месяца (в период с 1-го по 1-е как надбавка).
  */
-export function getEffectiveDeliveryBounds(start: Date, end: Date): { deliveryStart: Date; deliveryEnd: Date } {
-  const dStart = new Date(start)
-  const dEnd = new Date(end)
+export function getEffectiveDeliveryBounds(startInput: Date | string, endInput: Date | string): { deliveryStart: Date; deliveryEnd: Date } {
+  const s = new Date(startInput)
+  const e = new Date(endInput)
+
+  const getMSKParts = (d: Date) => {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Europe/Moscow',
+      year: 'numeric', month: 'numeric', day: 'numeric',
+      hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false
+    })
+    const parts = formatter.formatToParts(d)
+    const map: Record<string, number> = {}
+    for (const p of parts) {
+      if (p.type !== 'literal') map[p.type] = parseInt(p.value, 10)
+    }
+    return { year: map.year, month: map.month - 1, day: map.day, hour: map.hour }
+  }
+
+  const sParts = getMSKParts(s)
+  const eParts = getMSKParts(e)
 
   let deliveryStart: Date
   let deliveryEnd: Date
 
-  // Если дата начала периода — 1-е число месяца (например, 1 августа), 
-  // то окно доставок начинается с 30-го числа предыдущего месяца (30 июля)
-  if (dStart.getDate() === 1) {
-    deliveryStart = new Date(dStart.getFullYear(), dStart.getMonth() - 1, 30, 0, 0, 0, 0)
+  // Если дата начала периода — 1-е число месяца (например 1 августа):
+  // доставка начинается 30-го числа предыдущего месяца в 00:00:00 MSK
+  if (sParts.day === 1) {
+    deliveryStart = new Date(Date.UTC(sParts.year, sParts.month - 1, 30, -3, 0, 0, 0))
   } else {
-    deliveryStart = dStart
+    deliveryStart = s
   }
 
-  // Если дата окончания периода — 1-е число месяца (например, 1 августа или 1 сентября),
-  // то отсечка окончания доставок = 30-е число предыдущего месяца (30 июля для 1 августа, 30 августа для 1 сентября)
-  if (dEnd.getDate() === 1) {
-    deliveryEnd = new Date(dEnd.getFullYear(), dEnd.getMonth() - 1, 30, 0, 0, 0, 0)
+  // Если дата окончания периода — 1-е число месяца (например 1 августа или 1 сентября)
+  // или совпадает с 31 июля из-за сдвига часового пояса в ISO строках:
+  if (eParts.day === 1 || (eParts.day === 31 && eParts.month === 6)) {
+    deliveryEnd = new Date(Date.UTC(eParts.year, eParts.month - 1, 30, -3, 0, 0, 0))
   } else {
-    deliveryEnd = dEnd
+    deliveryEnd = e
   }
 
   return { deliveryStart, deliveryEnd }
