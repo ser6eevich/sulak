@@ -52,8 +52,8 @@ jobs:
             # Устанавливаем зависимости
             npm install --production=false
 
-            # Применяем миграции базы данных PostgreSQL
-            npx prisma migrate deploy || npx prisma db push
+            # Применяем структуру и создаем таблицы базы данных PostgreSQL
+            npx prisma db push --accept-data-loss
 
             # Сборка Next.js проекта с выделением 2.5GB виртуальной памяти Node V8
             NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS="--max-old-space-size=2560" npm run build
