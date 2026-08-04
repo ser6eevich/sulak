@@ -231,7 +231,7 @@ export class AmoClient {
   }
 
   /**
-   * 2. Получение информации о беседах по их ID
+   * 2. Получение информации о беседах по их ID (порциями по 20 штук)
    */
   async getTalksByIds(ids: number[]): Promise<AmoTalk[]> {
     if (!ids || ids.length === 0) return []
@@ -241,7 +241,7 @@ export class AmoClient {
     if (cached) return cached
 
     const allTalks: AmoTalk[] = []
-    const chunkSize = 50
+    const chunkSize = 20
 
     for (let i = 0; i < uniqueIds.length; i += chunkSize) {
       const chunk = uniqueIds.slice(i, i + chunkSize)
@@ -260,7 +260,7 @@ export class AmoClient {
   }
 
   /**
-   * 3. Получение сделок по их ID
+   * 3. Получение сделок по их ID (порциями по 20 штук во избежание ошибки HTTP URL Too Long)
    */
   async getLeadsByIds(ids: number[]): Promise<AmoEntitySimple[]> {
     if (!ids || ids.length === 0) return []
@@ -270,7 +270,7 @@ export class AmoClient {
     if (cached) return cached
 
     const allLeads: AmoEntitySimple[] = []
-    const chunkSize = 50
+    const chunkSize = 20
 
     for (let i = 0; i < uniqueIds.length; i += chunkSize) {
       const chunk = uniqueIds.slice(i, i + chunkSize)
@@ -289,7 +289,7 @@ export class AmoClient {
   }
 
   /**
-   * 4. Получение контактов по их ID
+   * 4. Получение контактов по их ID (порциями по 20 штук)
    */
   async getContactsByIds(ids: number[]): Promise<AmoEntitySimple[]> {
     if (!ids || ids.length === 0) return []
@@ -299,7 +299,7 @@ export class AmoClient {
     if (cached) return cached
 
     const allContacts: AmoEntitySimple[] = []
-    const chunkSize = 50
+    const chunkSize = 20
 
     for (let i = 0; i < uniqueIds.length; i += chunkSize) {
       const chunk = uniqueIds.slice(i, i + chunkSize)
@@ -330,7 +330,7 @@ export class AmoClient {
     const limit = 250
 
     while (true) {
-      const endpoint = `/api/v4/talks?limit=${limit}&page=${page}`
+      const endpoint = `/api/v4/talks?limit=250&page=${page}`
       const data = await this.request<{ _embedded?: { talks?: AmoTalk[] } }>(endpoint)
       const talks = data?._embedded?.talks || []
 
