@@ -921,7 +921,7 @@ export default function SettingsClient({
                     onClick={async () => {
                       setAvitoTestLoading(true)
                       setAvitoTestMsg('')
-                      const res = await sendLatestReviewPerAccountAction()
+                      const res = await sendLatestReviewPerAccountAction(avitoAccounts)
                       setAvitoTestLoading(false)
                       if (res.error) {
                         setAvitoTestMsg(`Ошибка: ${res.error}`)

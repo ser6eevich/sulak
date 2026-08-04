@@ -110,8 +110,7 @@ export interface AvitoAccountInput {
 }
 
 export async function saveAvitoSettingsAction(
-  accounts: AvitoAccountInput[],
-  topicId?: string
+  accounts: AvitoAccountInput[]
 ): Promise<{ error?: string; success?: boolean }> {
   try {
     await checkAdminOrOwner()
@@ -158,7 +157,9 @@ export async function saveAvitoSettingsAction(
   }
 }
 
-export async function sendLatestReviewPerAccountAction(): Promise<{ error?: string; success?: boolean; message?: string }> {
+export async function sendLatestReviewPerAccountAction(
+  formAccounts?: AvitoAccountInput[]
+): Promise<{ error?: string; success?: boolean; message?: string }> {
   try {
     await checkAdminOrOwner()
 
@@ -170,30 +171,47 @@ export async function sendLatestReviewPerAccountAction(): Promise<{ error?: stri
     }
 
     const { loadAvitoAccounts, fetchAvitoReviews } = await import('@/lib/avito/AvitoReviewsService')
-    const accounts = await loadAvitoAccounts()
+    
+    // Сначала берем аккаунты из формы, если не переданы — из БД
+    let accounts: { name: string; clientId: string; clientSecret: string }[] = []
+    if (formAccounts && formAccounts.length > 0) {
+      accounts = formAccounts
+        .map((a) => ({
+          name: a.name.trim(),
+          clientId: a.clientId.trim(),
+          clientSecret: a.clientSecret.trim(),
+        }))
+        .filter((a) => a.name && a.clientId && a.clientSecret)
+    }
+
+    if (accounts.length === 0) {
+      accounts = await loadAvitoAccounts()
+    }
 
     if (!accounts || accounts.length === 0) {
-      return { error: 'Не найдено ни одного настроенного аккаунта Авито. Заполните аккаунты и сохраните настройки.' }
+      return { error: 'Не заполнено ни одного аккаунта Авито (укажите Название, Client ID и Client Secret).' }
     }
 
     let sentCount = 0
+    const errors: string[] = []
 
     for (const acc of accounts) {
       try {
         const reviews = await fetchAvitoReviews(acc.clientId, acc.clientSecret, 5)
         if (reviews && reviews.length > 0) {
           const latest = reviews[0]
-          const ratingVal = latest.type === 'positive' ? 5 : (latest.type === 'negative' ? 1 : 3)
-          const ratingStr = '⭐'.repeat(ratingVal)
-          const authorName = latest.author?.name || 'Неизвестный'
+          const scoreVal = latest.score || 5
+          const ratingStr = '⭐'.repeat(scoreVal)
+          const authorName = latest.sender?.name || latest.author?.name || 'Неизвестный'
           const authorUrl = latest.author?.url || 'https://www.avito.ru'
           const date = new Date((latest.createdAt || Math.floor(Date.now() / 1000)) * 1000).toLocaleString('ru-RU', {
             timeZone: 'Europe/Moscow',
           })
+          const itemTitle = latest.item?.title ? `\n📦 <b>Товар:</b> ${latest.item.title}` : ''
 
           const textMessage =
             `⭐ <b>Новый отзыв на Авито (${ratingStr})</b>\n` +
-            `🏪 <b>Аккаунт:</b> ${acc.name}\n` +
+            `🏪 <b>Аккаунт:</b> ${acc.name}${itemTitle}\n` +
             `─────────────────────────\n` +
             `👤 <b>Автор:</b> ${authorName}\n` +
             `📅 <b>Дата:</b> ${date}\n` +
@@ -219,15 +237,24 @@ export async function sendLatestReviewPerAccountAction(): Promise<{ error?: stri
             body: JSON.stringify(payload),
           })
 
-          if (res.ok) sentCount++
+          if (res.ok) {
+            sentCount++
+          } else {
+            const errBody = await res.text()
+            errors.push(`[${acc.name}] Ошибка Telegram: ${errBody}`)
+          }
+        } else {
+          errors.push(`[${acc.name}] Отзывов на аккаунте пока нет.`)
         }
-      } catch (accErr) {
-        console.error(`Ошибка отправки последнего отзыва аккаунта ${acc.name}:`, accErr)
+      } catch (accErr: any) {
+        const errMsg = accErr?.message || String(accErr)
+        console.error(`Ошибка отправки отзыва аккаунта ${acc.name}:`, accErr)
+        errors.push(`[${acc.name}]: ${errMsg}`)
       }
     }
 
     if (sentCount === 0) {
-      return { error: 'Не удалось получить отзывы ни с одного аккаунта (проверьте Client ID и Client Secret).' }
+      return { error: `Ошибка получения отзывов:\n${errors.join('\n')}` }
     }
 
     return { success: true, message: `Успешно отправлено по 1 последнему отзыву с ${sentCount} аккаунтов Авито в Telegram!` }

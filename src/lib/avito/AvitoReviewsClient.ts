@@ -9,14 +9,22 @@ const AVITO_API_BASE = 'https://api.avito.ru'
 
 export interface AvitoReview {
   id: number
-  type: string             // 'positive' | 'negative' | 'unknown'
-  author: {
-    url: string
-    name: string
-    avatarUrl: string
-  }
-  text: string
+  score?: number           // 1, 2, 3, 4, 5
+  stage?: string
+  text?: string
   createdAt: number        // Unix timestamp (seconds)
+  item?: {
+    id: number
+    title: string
+  }
+  sender?: {
+    name?: string
+  }
+  author?: {
+    url?: string
+    name?: string
+    avatarUrl?: string
+  }
   answer?: {
     text: string
     createdAt: number
@@ -24,9 +32,8 @@ export interface AvitoReview {
 }
 
 interface AvitoRatingsResponse {
-  rating: number
-  reviews: AvitoReview[]
-  reviewsCount: number
+  reviews?: AvitoReview[]
+  entries?: AvitoReview[]
 }
 
 // Кэш токенов в памяти: ключ = clientId
@@ -70,7 +77,7 @@ async function getAccessToken(clientId: string, clientSecret: string): Promise<s
 
 /**
  * Получить список последних отзывов аккаунта через Авито API.
- * GET /ratings/v1/ratings — возвращает рейтинг и отзывы авторизованного пользователя.
+ * GET /ratings/v1/reviews?limit=20&offset=0
  */
 export async function fetchAvitoReviews(
   clientId: string,
@@ -79,7 +86,7 @@ export async function fetchAvitoReviews(
 ): Promise<AvitoReview[]> {
   const token = await getAccessToken(clientId, clientSecret)
 
-  const url = `${AVITO_API_BASE}/ratings/v1/ratings?limit=${limit}&offset=0`
+  const url = `${AVITO_API_BASE}/ratings/v1/reviews?limit=${limit}&offset=0`
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -93,26 +100,22 @@ export async function fetchAvitoReviews(
   }
 
   const data: AvitoRatingsResponse = await res.json()
-  return data.reviews ?? []
+  return data.reviews || data.entries || []
 }
 
 /**
- * Сформировать ссылку на отзыв — ведёт на страницу рейтингов профиля.
- * Так как Авито API не возвращает прямую ссылку на конкретный отзыв,
- * используем ссылку на страницу рейтингов с хэшом отзыва.
+ * Сформировать ссылку на отзыв
  */
-export function buildReviewUrl(authorUrl: string): string {
-  // authorUrl выглядит как https://www.avito.ru/user/xxx или похожий профиль покупателя
+export function buildReviewUrl(authorUrl?: string): string {
   return authorUrl || 'https://www.avito.ru'
 }
 
 /**
- * Перевести тип отзыва в эмодзи/текст
+ * Перевести тип/оценку отзыва в эмодзи/текст
  */
-export function reviewTypeLabel(type: string): string {
-  switch (type) {
-    case 'positive': return '⭐ Положительный'
-    case 'negative': return '👎 Отрицательный'
-    default: return '💬 Нейтральный'
-  }
+export function reviewTypeLabel(score?: number): string {
+  if (!score) return '💬 Отзыв'
+  if (score >= 4) return '⭐ Положительный'
+  if (score <= 2) return '👎 Отрицательный'
+  return '💬 Нейтральный'
 }
