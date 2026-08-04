@@ -8,15 +8,21 @@ export interface MessagesStats {
 }
 
 function getCustomFieldName(ev: AmoEvent): string {
-  if (!ev.value_after) return ''
-  try {
-    const val = Array.isArray(ev.value_after) ? ev.value_after[0] : ev.value_after
-    if (val?.custom_field?.name) return String(val.custom_field.name)
-    if (val?.name) return String(val.name)
-    return JSON.stringify(ev.value_after)
-  } catch {
-    return ''
+  let str = ''
+  if (ev.value_after) {
+    try {
+      const val = Array.isArray(ev.value_after) ? ev.value_after[0] : ev.value_after
+      if (val?.custom_field?.name) str += ' ' + String(val.custom_field.name)
+      if (val?.name) str += ' ' + String(val.name)
+      str += ' ' + JSON.stringify(ev.value_after)
+    } catch {}
   }
+  if (ev.value_before) {
+    try {
+      str += ' ' + JSON.stringify(ev.value_before)
+    } catch {}
+  }
+  return str
 }
 
 export class MessagesAnalytics {
