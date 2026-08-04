@@ -56,6 +56,40 @@ export async function loadAvitoAccounts(): Promise<AvitoAccount[]> {
   }
 }
 
+/** Первоначальное наполнение базы ID всех существующих отзывов (без отправки в Telegram) */
+export async function seedExistingAvitoReviewIds(): Promise<{
+  seededAccounts: number
+  totalReviewsSeeded: number
+}> {
+  const accounts = await loadAvitoAccounts()
+  let totalReviewsSeeded = 0
+
+  for (const acc of accounts) {
+    try {
+      const reviews = await fetchAvitoReviews(acc.clientId, acc.clientSecret, 50)
+      for (const rev of reviews) {
+        const compositeKey = `${acc.clientId}_${rev.id}`
+        await prisma.avitoSentReview.upsert({
+          where: { reviewId: compositeKey },
+          update: {},
+          create: {
+            reviewId: compositeKey,
+            accountName: acc.name,
+          },
+        })
+        totalReviewsSeeded++
+      }
+    } catch (err) {
+      console.error(`[AvitoReviewsService] Ошибка первичного посева отзывов аккаунта ${acc.name}:`, err)
+    }
+  }
+
+  return {
+    seededAccounts: accounts.length,
+    totalReviewsSeeded,
+  }
+}
+
 /** Отправить одно уведомление в Telegram */
 async function sendReviewNotification(
   review: AvitoReview,
@@ -153,18 +187,28 @@ export async function checkAndNotifyAvitoReviews(): Promise<{
     }
   }
 
-  const nowSeconds = Math.floor(Date.now() / 1000)
-  const MAX_REVIEW_AGE_SECONDS = 48 * 3600
+  // Проверяем: если база ещё пустая (первый запуск), наполняем её текущими ID, чтобы не спамить старыми отзывами
+  try {
+    const totalRecords = await prisma.avitoSentReview.count()
+    if (totalRecords === 0) {
+      console.log('[AvitoReviewsService] База отзывов пуста. Первоначальный посев всех существующих ID...')
+      await seedExistingAvitoReviewIds()
+      console.log('[AvitoReviewsService] Посев завершён. Теперь отслеживаем новые отзывы.')
+      return {
+        checkedAccounts: accounts.length,
+        newReviewsFound: 0,
+        errors: [],
+      }
+    }
+  } catch (dbErr) {
+    console.error('[AvitoReviewsService] Ошибка проверки базы avitoSentReview:', dbErr)
+  }
 
   for (const acc of accounts) {
     try {
-      const reviews = await fetchAvitoReviews(acc.clientId, acc.clientSecret, 20)
+      const reviews = await fetchAvitoReviews(acc.clientId, acc.clientSecret, 30)
 
       for (const rev of reviews) {
-        if (nowSeconds - rev.createdAt > MAX_REVIEW_AGE_SECONDS) {
-          continue
-        }
-
         const compositeKey = `${acc.clientId}_${rev.id}`
         const existing = await prisma.avitoSentReview.findUnique({
           where: { reviewId: compositeKey },
@@ -172,6 +216,7 @@ export async function checkAndNotifyAvitoReviews(): Promise<{
 
         if (existing) continue
 
+        // Найден действительно НОВЫЙ отзыв!
         await sendReviewNotification(rev, acc.name, chatId, token)
 
         await prisma.avitoSentReview.create({
