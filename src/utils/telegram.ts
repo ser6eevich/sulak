@@ -40,7 +40,7 @@ export async function getTelegramSettings() {
 export type OrderNotificationType = 'new_order' | 'delivering' | 'delivered' | 'cancelled'
 
 /**
- * Единая отправка уведомлений по заказам в главный Telegram чат с тегами
+ * Единая отправка уведомлений по заказам в главный Telegram чат с тегами внизу
  */
 export async function sendOrderTelegramNotification(
   orderId: string,
@@ -93,24 +93,24 @@ export async function sendOrderTelegramNotification(
     const appUrl = siteUrl || process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://sulak.ru'
     const orderLink = `${appUrl.replace(/\/$/, '')}/orders?id=${order.number || order.id}`
 
-    let headerTag = ''
+    let footerTag = ''
     let title = ''
 
     if (type === 'new_order') {
-      headerTag = '#новый_заказ'
+      footerTag = '#новый_заказ'
       title = `🛍️ <b>Новый заказ ${orderNumStr}</b>`
     } else if (type === 'delivering') {
-      headerTag = '#доставляется'
+      footerTag = '#доставляется'
       title = `🚚 <b>Заказ ${orderNumStr} передан в доставку</b>`
     } else if (type === 'delivered') {
-      headerTag = '#доставлен'
+      footerTag = '#доставлен'
       title = `🎉 <b>Заказ ${orderNumStr} успешно ДОСТАВЛЕН!</b>`
     } else if (type === 'cancelled') {
-      headerTag = '#отмена'
+      footerTag = '#отмена'
       title = `❌ <b>Заказ ${orderNumStr} ОТМЕНЁН</b>`
     }
 
-    let textMessage = `${headerTag}\n${title}\n`
+    let textMessage = `${title}\n`
     textMessage += `─────────────────────────\n`
     textMessage += `👤 <b>Клиент:</b> ${order.client?.fullName || 'Не указан'}\n`
     textMessage += `📞 <b>Телефон:</b> <code>${order.client?.primaryPhone || ''}</code>\n`
@@ -132,8 +132,10 @@ export async function sendOrderTelegramNotification(
       const tagMention = managerTag 
         ? `💬 <b>${managerTag}</b>, пожалуйста, запроси отзыв у клиента! ⭐`
         : `💬 <b>${managerName}</b>, пожалуйста, запроси отзыв у клиента! ⭐`
-      textMessage += `\n${tagMention}`
+      textMessage += `\n${tagMention}\n`
     }
+
+    textMessage += `\n${footerTag}`
 
     const replyMarkup = {
       inline_keyboard: [
