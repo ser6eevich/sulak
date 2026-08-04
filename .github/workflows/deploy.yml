@@ -1,0 +1,47 @@
+name: Deploy to Production Server
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  deploy:
+    name: Deploy Application
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH to Production Server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script: |
+            set -e
+            echo "🚀 Начинаем деплой обновления..."
+            
+            # Переходим в папку проекта на сервере
+            cd /var/www/sulak
+
+            # Загружаем свежие изменения из Git
+            git pull origin main || git pull origin master
+
+            # Устанавливаем зависимости
+            npm install --production=false
+
+            # Применяем миграции базы данных PostgreSQL
+            npx prisma migrate deploy
+
+            # Сборка Next.js проекта
+            npm run build
+
+            # Перезапуск процесса в PM2
+            pm2 restart sulak || pm2 start npm --name "sulak" -- run start
+
+            echo "✅ Деплой успешно завершён!"

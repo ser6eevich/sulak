@@ -1,0 +1,206 @@
+// Prisma schema file for "Система Сулак"
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Profile {
+  id         String     @id @db.Uuid
+  email      String     @unique
+  fullName   String     @map("full_name")
+  phone      String?
+  role       String     // 'admin', 'owner', 'manager', 'production', 'warehouse', 'logistician', 'driver'
+  isActive   Boolean    @default(true) @map("is_active")
+  permissions Json?     @default("{}")
+  avatarUrl        String?    @map("avatar_url")
+  direction        String?
+  telegramUsername String?    @map("telegram_username")
+  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime   @default(now()) @map("updated_at") @db.Timestamptz
+  lastSeenAt       DateTime?  @map("last_seen_at") @db.Timestamptz
+  passwordHash     String?    @map("password_hash")
+  
+  auditLogs     AuditLog[]
+  clients       Client[]
+  orders        Order[]       @relation("CreatedOrders")
+  driverOrders  Order[]       @relation("DriverOrders")
+  sellerOrders  Order[]       @relation("SellerOrders")
+
+  @@map("profiles")
+}
+
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  entityType String   @map("entity_type") // Например, 'profile', 'order', 'product'
+  entityId   String   @map("entity_id")   // ID целевой сущности
+  action     String                       // Например, 'create', 'update_role', 'block'
+  oldData    Json?    @map("old_data")
+  newData    Json?    @map("new_data")
+  comment    String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user       Profile? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
+
+model ProductCategory {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  slug      String    @unique
+  isActive  Boolean   @default(true) @map("is_active")
+  sortOrder Int       @default(0) @map("sort_order")
+  products  Product[]
+  folders   ProductFolder[]
+
+  @@map("product_categories")
+}
+
+model ProductFolder {
+  id         String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  categoryId String          @map("category_id") @db.Uuid
+  parentId   String?         @map("parent_id") @db.Uuid
+  name       String
+  isActive   Boolean         @default(true) @map("is_active")
+  createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime        @default(now()) @map("updated_at") @db.Timestamptz
+
+  category   ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  parent     ProductFolder?  @relation("SubFolders", fields: [parentId], references: [id], onDelete: Cascade)
+  subFolders ProductFolder[] @relation("SubFolders")
+  products   Product[]
+
+  @@map("product_folders")
+}
+
+model Product {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  categoryId     String           @map("category_id") @db.Uuid
+  folderId       String?          @map("folder_id") @db.Uuid
+  name           String
+  description    String?
+  baseSku        String           @map("base_sku")
+  unit           String           @default("шт")
+  trackInventory Boolean          @default(true) @map("track_inventory")
+  isActive       Boolean          @default(true) @map("is_active")
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime         @default(now()) @map("updated_at") @db.Timestamptz
+  archivedAt     DateTime?        @map("archived_at") @db.Timestamptz
+
+  category       ProductCategory  @relation(fields: [categoryId], references: [id])
+  folder         ProductFolder?   @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  variants       ProductVariant[]
+
+  @@map("products")
+}
+
+model ProductVariant {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId     String   @map("product_id") @db.Uuid
+  sku           String   @unique
+  size          String?
+  color         String?
+  material      String?
+  thickness     String?
+  attributes    Json?
+  purchasePrice Int      @map("purchase_price")
+  salePrice     Int      @map("sale_price")
+  weight        Decimal? @db.Decimal(10, 3)
+  volume        Decimal? @db.Decimal(10, 4)
+  isActive      Boolean  @default(true) @map("is_active")
+  stock         Int      @default(0)
+
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderItems    OrderItem[]
+
+  @@map("product_variants")
+}
+
+model Client {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fullName        String    @map("full_name")
+  primaryPhone    String    @unique @map("primary_phone")
+  additionalPhone String?   @map("additional_phone")
+  region          String?
+  city            String?
+  address         String?
+  postalCode      String?   @map("postal_code")
+  source          String?
+  avitoAccount    String?   @map("avito_account")
+  comment         String?
+  createdBy       String    @map("created_by") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz
+  archivedAt      DateTime? @map("archived_at") @db.Timestamptz
+
+  creator         Profile   @relation(fields: [createdBy], references: [id])
+  orders          Order[]
+
+  @@map("clients")
+}
+
+model Order {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  number          String      @default(dbgenerated("nextval('orders_number_seq')::varchar"))
+  clientId        String      @map("client_id") @db.Uuid
+  status          String      @default("pending") // pending, confirmed, production, production_completed, warehouse, delivery, delivered, cancelled
+  paymentStatus   String      @default("unpaid") @map("payment_status") // unpaid, partially_paid, paid
+  totalPrice      Int         @map("total_price") // Общая сумма позиций в копейках
+  discount        Int         @default(0)
+  deliveryPrice   Int         @default(0) @map("delivery_price")
+  assemblyPrice   Int         @default(0) @map("assembly_price")
+  prepayment      Int         @default(0)
+  deliveryAddress String?     @map("delivery_address")
+  comment         String?
+  driverId        String?     @map("driver_id") @db.Uuid
+  sellerId        String?     @map("seller_id") @db.Uuid
+  deliveredAt       DateTime?   @map("delivered_at") @db.Timestamptz
+  shippedAt          DateTime?   @map("shipped_at") @db.Timestamptz
+  deliveryAlertSent  Boolean     @default(false) @map("delivery_alert_sent")
+  feedbackType    String      @default("none") @map("feedback_type") // none, no_photo, with_photo
+  feedbackAuthor  String?     @map("feedback_author")
+  feedbackUrl     String?     @map("feedback_url")
+  imageUrl        String?     @map("image_url")
+  createdBy       String      @map("created_by") @db.Uuid
+  plannedDeliveryDate DateTime?   @map("planned_delivery_date") @db.Timestamptz
+  staleAlertStatus    String?     @map("stale_alert_status")
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime    @default(now()) @map("updated_at") @db.Timestamptz
+
+  client          Client      @relation(fields: [clientId], references: [id])
+  creator         Profile     @relation("CreatedOrders", fields: [createdBy], references: [id])
+  driver          Profile?    @relation("DriverOrders", fields: [driverId], references: [id], onDelete: SetNull)
+  seller          Profile?    @relation("SellerOrders", fields: [sellerId], references: [id], onDelete: SetNull)
+  items           OrderItem[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId          String   @map("order_id") @db.Uuid
+  productVariantId String   @map("product_variant_id") @db.Uuid
+  quantity         Int      @default(1)
+  unitPrice        Int      @map("unit_price") // В копейках
+  subOrderIndex    Int      @default(0) @map("sub_order_index")
+  customTableSize  String?  @map("custom_table_size")
+  customChairsCount Int?    @map("custom_chairs_count")
+
+  order            Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variant          ProductVariant @relation(fields: [productVariantId], references: [id])
+
+  @@map("order_items")
+}
+
+model SystemSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("system_settings")
+}
