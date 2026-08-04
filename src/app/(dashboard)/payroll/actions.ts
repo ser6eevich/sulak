@@ -3,7 +3,7 @@
 import prisma from '@/lib/prisma'
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
-import { getRateForOrderCount, getPeriodBoundsForDate } from '@/utils/payroll'
+import { getRateForOrderCount, getPeriodBoundsForDate, getEffectiveDeliveryBounds } from '@/utils/payroll'
 
 async function checkAdminOrOwner() {
   const supabase = await createClient()
@@ -30,6 +30,9 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
 
     const start = new Date(startDateStr)
     const end = new Date(endDateStr)
+
+    // Границы фактического времени доставки (отсечка 30-го числа месяца: 30-е и 31-е числа уходят в след. месяц)
+    const { deliveryStart, deliveryEnd } = getEffectiveDeliveryBounds(start, end)
 
     // Загружаем всех сотрудников с ролью менеджер
     const employees = await prisma.profile.findMany({
@@ -102,7 +105,7 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
       })
       const cancelledCount = new Set(cancelledItems.map(it => `${it.orderId}-${it.subOrderIndex}`)).size
 
-      // 2. Доставленные подзаказы, которые были созданы в отчетном периоде И доставлены в отчетном периоде
+      // 2. Доставленные подзаказы, которые были созданы в отчетном периоде И доставлены в окно этого периода (до 30-го числа)
       const currentDeliveredItems = await prisma.orderItem.findMany({
         where: {
           order: {
@@ -113,8 +116,8 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
             },
             status: 'delivered',
             deliveredAt: {
-              gte: start,
-              lte: end,
+              gte: deliveryStart,
+              lt: deliveryEnd,
             },
           },
         },
@@ -133,7 +136,7 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
       const currentDeliveredCount = currentDeliveredMap.size
       const currentDeliveriesSum = currentDeliveredCount * currentRate
 
-      // 3. Подзаказы из ПРЕДЫДУЩИХ периодов, которые были доставлены в этом периоде (Надбавка)
+      // 3. Подзаказы из ПРЕДЫДУЩИХ периодов, которые были доставлены в окно этого периода (включая 30-31 прошлого месяца) -> (Надбавка)
       const pastDeliveredItems = await prisma.orderItem.findMany({
         where: {
           order: {
@@ -143,8 +146,8 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
             },
             status: 'delivered',
             deliveredAt: {
-              gte: start,
-              lte: end, // доставлены в этом периоде
+              gte: deliveryStart,
+              lt: deliveryEnd, // доставлены в окне этого периода (с 30-го по 30-е)
             },
           },
         },
@@ -168,7 +171,7 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
 
       for (const [key, items] of pastDeliveredMap.entries()) {
         const firstItem = items[0]
-        // Определяем период создания этого прошлого заказа (14-14)
+        // Определяем период создания этого прошлого заказа
         const { startDate: pastStart, endDate: pastEnd } = getPeriodBoundsForDate(new Date(firstItem.order.createdAt))
         
         // Считаем общее количество подзаказов менеджера в том историческом периоде
@@ -203,14 +206,14 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
         })
       }
 
-      // 4. Отзывы и бонусы по уникальным заказам, доставленным в этом расчетном периоде
+      // 4. Отзывы и бонусы по уникальным заказам, доставленным в отсечке этого периода
       const allDeliveredInPeriod = await prisma.order.findMany({
         where: {
           sellerId: emp.id,
           status: 'delivered',
           deliveredAt: {
-            gte: start,
-            lte: end,
+            gte: deliveryStart,
+            lt: deliveryEnd,
           },
         },
       })

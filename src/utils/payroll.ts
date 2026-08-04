@@ -128,3 +128,25 @@ export function getPeriodBoundsForDate(date: Date): { startDate: Date; endDate: 
 
   return { startDate, endDate }
 }
+
+/**
+ * Рассчитывает границы времени доставки для отчётного периода.
+ * Зарплата рассчитывается примерно 30-го числа каждого месяца, 
+ * поэтому заказы, доставленные 30-го или 31-го числа, автоматически переходят 
+ * в окно расчёта следующего месяца (как надбавка за прошлые заказы).
+ */
+export function getEffectiveDeliveryBounds(start: Date, end: Date): { deliveryStart: Date; deliveryEnd: Date } {
+  const dStart = new Date(start)
+  const dEnd = new Date(end)
+
+  // Если период регулярный месячный (начинается 1-го числа месяца)
+  if (dStart.getDate() === 1) {
+    // Границы доставки: с 30-го числа предыдущего месяца (00:00:00) по 30-е число текущего месяца (00:00:00)
+    const deliveryStart = new Date(dStart.getFullYear(), dStart.getMonth() - 1, 30, 0, 0, 0, 0)
+    const deliveryEnd   = new Date(dStart.getFullYear(), dStart.getMonth(), 30, 0, 0, 0, 0)
+    return { deliveryStart, deliveryEnd }
+  }
+
+  // Для переходных и кастомных периодов
+  return { deliveryStart: dStart, deliveryEnd: dEnd }
+}
