@@ -6,16 +6,26 @@ export interface CallsStats {
   totalCalls: number
 }
 
+function isValueSetToYes(ev: AmoEvent): boolean {
+  if (!ev.value_after) return false
+  const val = Array.isArray(ev.value_after) ? ev.value_after[0] : ev.value_after
+  const item = val?.custom_field_value || val
+  if (!item) return false
+  const text = String(item.text || '').toLowerCase()
+  return text === 'да' || item.enum_id === 701271 || item.enum_id === 701315 || item.enum_id === 701695
+}
+
 function getCustomFieldName(ev: AmoEvent): string {
-  if (!ev.value_after) return ''
-  try {
-    const val = Array.isArray(ev.value_after) ? ev.value_after[0] : ev.value_after
-    if (val?.custom_field?.name) return String(val.custom_field.name)
-    if (val?.name) return String(val.name)
-    return JSON.stringify(ev.value_after)
-  } catch {
-    return ''
+  let str = ''
+  if (ev.value_after) {
+    try {
+      const val = Array.isArray(ev.value_after) ? ev.value_after[0] : ev.value_after
+      if (val?.custom_field?.name) str += ' ' + String(val.custom_field.name)
+      if (val?.name) str += ' ' + String(val.name)
+      str += ' ' + JSON.stringify(ev.value_after)
+    } catch {}
   }
+  return str
 }
 
 export class CallsAnalytics {
@@ -38,30 +48,37 @@ export class CallsAnalytics {
         amoClient.getCallsByUpdatedAt(fromTimestamp, toTimestamp),
       ])
 
-      const leadIds = (allEvents || [])
-        .filter((ev) => ev.entity_id && ev.entity_type === 'lead')
-        .map((ev) => ev.entity_id)
-
+      const leadIds = Array.from(new Set((allEvents || []).filter((ev) => ev.entity_id && ev.entity_type === 'lead').map((ev) => ev.entity_id)))
       const leads = await amoClient.getLeadsByIds(leadIds)
       const leadMap = new Map(leads.map((l) => [l.id, l]))
 
-      // Поле SalesBot "Есть звонок (новые)" — фильтруем по дате создания сделки (Созданы: сегодня)
-      const callFieldEvents = (allEvents || []).filter((ev) => {
-        const fieldStr = getCustomFieldName(ev).toLowerCase()
-        if (!fieldStr.includes('звонок') || !fieldStr.includes('новые')) return false
-        const lead = leadMap.get(ev.entity_id)
-        return !lead || (lead.created_at >= fromTimestamp && lead.created_at <= toTimestamp)
-      })
+      // Проверяем точное кастомное поле SalesBot: ID 1041695 ("Есть звонок (новые)?")
+      let incomingCallsCount = 0
 
-      if (callFieldEvents.length > 0) {
-        return {
-          incomingCalls: callFieldEvents.length,
-          missedCalls: 0,
-          totalCalls: callFieldEvents.length,
+      for (const ev of (allEvents || [])) {
+        if (!isValueSetToYes(ev)) continue
+
+        const fieldStr = getCustomFieldName(ev).toLowerCase()
+        const isCallField = ev.type === 'custom_field_1041695_value_changed' || (fieldStr.includes('звонок') && fieldStr.includes('новые'))
+
+        if (isCallField) {
+          const lead = leadMap.get(ev.entity_id)
+          const isCreatedToday = !lead || (lead.created_at >= fromTimestamp && lead.created_at <= toTimestamp)
+          if (isCreatedToday) {
+            incomingCallsCount++
+          }
         }
       }
 
-      // Фолбэк на стандартный REST API звонков
+      if (incomingCallsCount > 0) {
+        return {
+          incomingCalls: incomingCallsCount,
+          missedCalls: 0,
+          totalCalls: incomingCallsCount,
+        }
+      }
+
+      // Фолбэк на классический REST API звонков
       const callMap = new Map<number, any>()
       ;(callsCreated || []).forEach((c: any) => { if (c.id) callMap.set(c.id, c) })
       ;(callsUpdated || []).forEach((c: any) => { if (c.id) callMap.set(c.id, c) })

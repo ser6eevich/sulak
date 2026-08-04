@@ -1,10 +1,19 @@
-import { amoClient, AmoEvent, AmoTalk } from './AmoClient'
+import { amoClient, AmoEvent } from './AmoClient'
 
 export interface MessagesStats {
   newMessages: number
   repeatMessages: number
   newIncoming: number
   totalEventsCount: number
+}
+
+function isValueSetToYes(ev: AmoEvent): boolean {
+  if (!ev.value_after) return false
+  const val = Array.isArray(ev.value_after) ? ev.value_after[0] : ev.value_after
+  const item = val?.custom_field_value || val
+  if (!item) return false
+  const text = String(item.text || '').toLowerCase()
+  return text === 'да' || item.enum_id === 701271 || item.enum_id === 701315 || item.enum_id === 701695
 }
 
 function getCustomFieldName(ev: AmoEvent): string {
@@ -17,19 +26,10 @@ function getCustomFieldName(ev: AmoEvent): string {
       str += ' ' + JSON.stringify(ev.value_after)
     } catch {}
   }
-  if (ev.value_before) {
-    try {
-      str += ' ' + JSON.stringify(ev.value_before)
-    } catch {}
-  }
   return str
 }
 
 export class MessagesAnalytics {
-  /**
-   * Полный расчёт метрик сообщений за выбранную дату
-   * @param dateString Формат 'YYYY-MM-DD'
-   */
   async calculateForDate(dateString: string): Promise<MessagesStats> {
     const parts = dateString.split('-').map(Number)
     const year = parts[0] || new Date().getFullYear()
@@ -42,92 +42,67 @@ export class MessagesAnalytics {
     const fromTimestamp = Math.floor(startOfDay.getTime() / 1000)
     const toTimestamp = Math.floor(endOfDay.getTime() / 1000)
 
-    // 1. Загружаем все события за выбранный день
+    // 1. Загружаем все события за день
     const events = await amoClient.getEvents(fromTimestamp, toTimestamp, [])
 
     if (!events || events.length === 0) {
-      return {
-        newMessages: 0,
-        repeatMessages: 0,
-        newIncoming: 0,
-        totalEventsCount: 0,
-      }
+      return { newMessages: 0, repeatMessages: 0, newIncoming: 0, totalEventsCount: 0 }
     }
 
-    // Собираем ID сущностей для получения дат их создания в amoCRM
-    const leadIds: number[] = []
-    const contactIds: number[] = []
-    const talkIds: number[] = []
-
-    events.forEach((ev) => {
-      if (!ev.entity_id) return
-      if (ev.entity_type === 'lead') leadIds.push(ev.entity_id)
-      else if (ev.entity_type === 'contact') contactIds.push(ev.entity_id)
-      else talkIds.push(ev.entity_id)
-    })
-
-    const [leads, contacts, talksById] = await Promise.all([
-      amoClient.getLeadsByIds(leadIds),
-      amoClient.getContactsByIds(contactIds),
-      amoClient.getTalksByIds(talkIds),
-    ])
-
+    // 2. Сбор дат создания сделок/контактов
+    const leadIds = Array.from(new Set(events.filter((ev) => ev.entity_id && ev.entity_type === 'lead').map((ev) => ev.entity_id)))
+    const leads = await amoClient.getLeadsByIds(leadIds)
     const leadMap = new Map(leads.map((l) => [l.id, l]))
-    const contactMap = new Map(contacts.map((c) => [c.id, c]))
-    const talkMap = new Map<number, AmoTalk>()
-    for (const t of talksById) if (t.id) talkMap.set(t.id, t)
 
-    const getCreatedAt = (ev: AmoEvent): number | undefined => {
-      if (ev.entity_type === 'lead') return leadMap.get(ev.entity_id)?.created_at
-      if (ev.entity_type === 'contact') return contactMap.get(ev.entity_id)?.created_at
-      if (ev.entity_type === 'talk') return talkMap.get(ev.entity_id)?.created_at
-      return (
-        leadMap.get(ev.entity_id)?.created_at ||
-        contactMap.get(ev.entity_id)?.created_at ||
-        talkMap.get(ev.entity_id)?.created_at
-      )
-    }
+    let newMsgsCount = 0
+    let repeatMsgsCount = 0
 
-    // 2. Поле SalesBot "Есть обращение (новые)" — учитываем только сделки/клиентов, СОЗДАННЫХ СЕГОДНЯ
-    const newMsgFieldEvents = events.filter((ev) => {
+    // Проверяем точные кастомные поля SalesBot:
+    // ID 1042391: "Есть обращение (новые)? Отчет"
+    // ID 1042419: "Есть обращение (повторные)? Отчет"
+    for (const ev of events) {
+      if (!isValueSetToYes(ev)) continue
+
       const fieldStr = getCustomFieldName(ev).toLowerCase()
-      if (!fieldStr.includes('обращение') || !fieldStr.includes('новые')) return false
-      const createdAt = getCreatedAt(ev)
-      return !createdAt || (createdAt >= fromTimestamp && createdAt <= toTimestamp)
-    })
+      const isNewField = ev.type === 'custom_field_1042391_value_changed' || (fieldStr.includes('обращение') && fieldStr.includes('новые'))
+      const isRepeatField = ev.type === 'custom_field_1042419_value_changed' || (fieldStr.includes('обращение') && (fieldStr.includes('повтор') || fieldStr.includes('повторные')))
 
-    // 3. Поле SalesBot "Есть обращение (повторные)"
-    const repeatMsgFieldEvents = events.filter((ev) => {
-      const fieldStr = getCustomFieldName(ev).toLowerCase()
-      return fieldStr.includes('обращение') && (fieldStr.includes('повтор') || fieldStr.includes('повторные'))
-    })
-
-    if (newMsgFieldEvents.length > 0 || repeatMsgFieldEvents.length > 0) {
-      return {
-        newMessages: newMsgFieldEvents.length,
-        repeatMessages: repeatMsgFieldEvents.length,
-        newIncoming: newMsgFieldEvents.length,
-        totalEventsCount: newMsgFieldEvents.length + repeatMsgFieldEvents.length,
+      if (isNewField) {
+        const lead = leadMap.get(ev.entity_id)
+        const isCreatedToday = !lead || (lead.created_at >= fromTimestamp && lead.created_at <= toTimestamp)
+        if (isCreatedToday) {
+          newMsgsCount++
+        }
+      } else if (isRepeatField) {
+        repeatMsgsCount++
       }
     }
 
-    // Фолбэк на классические чат-события
+    // Если нашли события полей SalesBot — отдаём их точные значения
+    if (newMsgsCount > 0 || repeatMsgsCount > 0) {
+      return {
+        newMessages: newMsgsCount,
+        repeatMessages: repeatMsgsCount,
+        newIncoming: newMsgsCount,
+        totalEventsCount: newMsgsCount + repeatMsgsCount,
+      }
+    }
+
+    // Фолбэк на стандартные входящие чат-сообщения
     const incomingChatEvents = events.filter((ev) => ev.type === 'incoming_chat_message')
     const newContacts = new Set<number>()
     const repeatContacts = new Set<number>()
 
     for (const ev of incomingChatEvents) {
-      const entityId = ev.entity_id
-      const createdAtTimestamp = getCreatedAt(ev)
-
-      if (createdAtTimestamp) {
-        if (createdAtTimestamp >= fromTimestamp && createdAtTimestamp <= toTimestamp) {
-          newContacts.add(entityId)
-        } else if (createdAtTimestamp < fromTimestamp) {
-          repeatContacts.add(entityId)
+      const lead = leadMap.get(ev.entity_id)
+      if (lead && lead.created_at) {
+        if (lead.created_at >= fromTimestamp && lead.created_at <= toTimestamp) {
+          newContacts.add(ev.entity_id)
+        } else {
+          repeatContacts.add(ev.entity_id)
         }
       } else {
-        newContacts.add(entityId)
+        newContacts.add(ev.entity_id)
       }
     }
 

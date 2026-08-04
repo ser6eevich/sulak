@@ -189,7 +189,7 @@ export class AmoClient {
   }
 
   /**
-   * 1. События (GET /api/v4/events)
+   * 1. События (GET /api/v4/events) со ВСЕМИ страницами пагинации
    */
   async getEvents(
     fromTimestamp: number,
