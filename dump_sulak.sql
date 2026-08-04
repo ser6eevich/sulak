@@ -1,5 +1,7 @@
 -- Sulak DB Dump
+CREATE SEQUENCE IF NOT EXISTS orders_number_seq START WITH 1000;
 SET session_replication_role = 'replica';
+
 
 -- Data for profiles
 INSERT INTO public.profiles ("id", "email", "full_name", "phone", "role", "is_active", "avatar_url", "created_at", "updated_at", "permissions", "direction", "telegram_username", "last_seen_at", "password_hash") VALUES ('352f3882-7817-464e-ba49-614c55dc5603', 'admin@sulak.ru', 'Администратор', NULL, 'admin', true, NULL, '"2026-07-13T12:28:26.580Z"', '"2026-07-20T10:51:15.537Z"', '{}', NULL, NULL, '"2026-08-04T11:19:47.687Z"', '$2b$10$1pfxSieQl9CHY6oqnxLZoeRKSA/NiTTbHYe4W9d3aEYJVGaFK1zVS') ON CONFLICT DO NOTHING;
