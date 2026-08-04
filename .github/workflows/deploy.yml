@@ -29,9 +29,13 @@ jobs:
             # Переходим в папку проекта на сервере
             cd /var/www/sulak
 
-            # Загружаем свежие изменения из Git без конфликтов
-            git fetch origin
-            git reset --hard origin/master || git reset --hard origin/main
+            # Загружаем свежие изменения из Git (или клонируем если папка не привязана)
+            if [ ! -d ".git" ]; then
+              git clone https://github.com/ser6eevich/sulak.git .
+            else
+              git fetch origin
+              git reset --hard origin/master || git reset --hard origin/main
+            fi
 
             # Устанавливаем зависимости
             npm install --production=false
