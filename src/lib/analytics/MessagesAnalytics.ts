@@ -13,7 +13,6 @@ export class MessagesAnalytics {
    * @param dateString Формат 'YYYY-MM-DD'
    */
   async calculateForDate(dateString: string): Promise<MessagesStats> {
-    // Парсим дату с учётом UTC/MSK компонента
     const parts = dateString.split('-').map(Number)
     const year = parts[0] || new Date().getFullYear()
     const month = (parts[1] || 1) - 1
@@ -40,29 +39,35 @@ export class MessagesAnalytics {
       }
     }
 
-    // Собираем все ID диалогов/сущностей
-    const talkEntityIds = events.map((ev) => ev.entity_id).filter(Boolean)
+    // Собираем ID по типам сущностей (lead, contact, talk)
+    const leadIds: number[] = []
+    const contactIds: number[] = []
+    const talkIds: number[] = []
 
-    // 2. Получаем метаданные бесед по их ID + последние беседы
-    const [talksById, recentTalks] = await Promise.all([
-      amoClient.getTalksByIds(talkEntityIds),
+    events.forEach((ev) => {
+      if (!ev.entity_id) return
+      if (ev.entity_type === 'lead') leadIds.push(ev.entity_id)
+      else if (ev.entity_type === 'contact') contactIds.push(ev.entity_id)
+      else talkIds.push(ev.entity_id)
+    })
+
+    // 2. Получаем метаданные сущностей по их ID
+    const [leads, contacts, talksById, recentTalks] = await Promise.all([
+      amoClient.getLeadsByIds(leadIds),
+      amoClient.getContactsByIds(contactIds),
+      amoClient.getTalksByIds(talkIds),
       amoClient.getTalks(),
     ])
 
+    const leadMap = new Map(leads.map((l) => [l.id, l]))
+    const contactMap = new Map(contacts.map((c) => [c.id, c]))
     const talkMap = new Map<number, AmoTalk>()
-    for (const t of recentTalks) {
-      if (t.id) talkMap.set(t.id, t)
-    }
-    for (const t of talksById) {
-      if (t.id) talkMap.set(t.id, t)
-    }
+    for (const t of recentTalks) if (t.id) talkMap.set(t.id, t)
+    for (const t of talksById) if (t.id) talkMap.set(t.id, t)
 
-    // Собираем ID бесед, созданных строго СЕГОДНЯ
     const talksCreatedToday = new Set<number>()
     events.forEach((ev) => {
-      if (ev.type === 'talk_created') {
-        talksCreatedToday.add(ev.entity_id)
-      }
+      if (ev.type === 'talk_created') talksCreatedToday.add(ev.entity_id)
     })
 
     const newContacts = new Set<number>()
@@ -70,24 +75,41 @@ export class MessagesAnalytics {
     const incomingEvents = events.filter((ev) => ev.type === 'incoming_chat_message')
 
     for (const ev of incomingEvents) {
-      const talk = talkMap.get(ev.entity_id)
-      const contactId = talk?.contact_id || ev.entity_id
+      const entityId = ev.entity_id
+      let createdAtTimestamp: number | undefined
 
-      if (talk && talk.created_at) {
-        // Если беседа создана СЕГОДНЯ — это новое сообщение
-        if (talk.created_at >= fromTimestamp && talk.created_at <= toTimestamp) {
-          newContacts.add(contactId)
-        } else {
-          // Если беседа создана ДО текущего дня — это ПОВТОРНОЕ сообщение!
-          repeatContacts.add(contactId)
+      if (ev.entity_type === 'lead') {
+        createdAtTimestamp = leadMap.get(entityId)?.created_at
+      } else if (ev.entity_type === 'contact') {
+        createdAtTimestamp = contactMap.get(entityId)?.created_at
+      } else if (ev.entity_type === 'talk') {
+        createdAtTimestamp = talkMap.get(entityId)?.created_at
+      }
+
+      // Если в профильном мапе не нашли, проверяем другие мапы на всякий случай
+      if (!createdAtTimestamp) {
+        createdAtTimestamp =
+          talkMap.get(entityId)?.created_at ||
+          leadMap.get(entityId)?.created_at ||
+          contactMap.get(entityId)?.created_at
+      }
+
+      if (createdAtTimestamp) {
+        // Если сущность (сделка/контакт/беседа) создана СЕГОДНЯ — новое сообщение
+        if (createdAtTimestamp >= fromTimestamp && createdAtTimestamp <= toTimestamp) {
+          newContacts.add(entityId)
+        } else if (createdAtTimestamp < fromTimestamp) {
+          // Если сущность создана ДО сегодняшнего дня — повторное сообщение
+          repeatContacts.add(entityId)
         }
       } else {
-        // Если беседа создана сегодня (зафиксировано событием talk_created)
-        if (talksCreatedToday.has(ev.entity_id)) {
-          newContacts.add(contactId)
+        // Если через API не удалось найти дату создания сущности:
+        // Проверяем событие talk_created за сегодня
+        if (talksCreatedToday.has(entityId)) {
+          newContacts.add(entityId)
         } else {
-          // Иначе это ранее открытый диалог -> повторное сообщение
-          repeatContacts.add(contactId)
+          // При отсутствии даты по умолчанию относим к новым, если сообщение пришло сегодня
+          newContacts.add(entityId)
         }
       }
     }

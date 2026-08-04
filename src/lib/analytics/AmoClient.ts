@@ -23,6 +23,11 @@ export interface AmoTalk {
   origin?: string
 }
 
+export interface AmoEntitySimple {
+  id: number
+  created_at: number
+}
+
 export class AmoClient {
   private subdomain: string = ''
   private clientId: string = ''
@@ -53,7 +58,6 @@ export class AmoClient {
     const map: Record<string, string> = {}
     for (const s of settings) map[s.key] = s.value
 
-    // Очищаем поддомен от https://, .amocrm.ru и т.д.
     this.subdomain = (map['amocrm_subdomain'] || '')
       .trim()
       .replace(/^https?:\/\//i, '')
@@ -71,7 +75,6 @@ export class AmoClient {
       return false
     }
 
-    // Пробуем обновить токен через refresh_token если срок подходит
     if (this.refreshToken && this.clientId && this.clientSecret && Date.now() >= this.expiresAt - 300000) {
       await this.refreshTokens()
     }
@@ -228,7 +231,7 @@ export class AmoClient {
   }
 
   /**
-   * 2. Получение информации о конкретных беседах по их ID
+   * 2. Получение информации о беседах по их ID
    */
   async getTalksByIds(ids: number[]): Promise<AmoTalk[]> {
     if (!ids || ids.length === 0) return []
@@ -257,7 +260,65 @@ export class AmoClient {
   }
 
   /**
-   * 3. Беседы (GET /api/v4/talks)
+   * 3. Получение сделок по их ID
+   */
+  async getLeadsByIds(ids: number[]): Promise<AmoEntitySimple[]> {
+    if (!ids || ids.length === 0) return []
+    const uniqueIds = Array.from(new Set(ids))
+    const cacheKey = `leads_ids_${uniqueIds.sort().join('_')}`
+    const cached = cacheService.get<AmoEntitySimple[]>(cacheKey)
+    if (cached) return cached
+
+    const allLeads: AmoEntitySimple[] = []
+    const chunkSize = 50
+
+    for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+      const chunk = uniqueIds.slice(i, i + chunkSize)
+      let endpoint = `/api/v4/leads?limit=250`
+      chunk.forEach((id) => {
+        endpoint += `&filter[id][]=${id}`
+      })
+
+      const data = await this.request<{ _embedded?: { leads?: AmoEntitySimple[] } }>(endpoint)
+      const leads = data?._embedded?.leads || []
+      allLeads.push(...leads)
+    }
+
+    cacheService.set(cacheKey, allLeads, 300000)
+    return allLeads
+  }
+
+  /**
+   * 4. Получение контактов по их ID
+   */
+  async getContactsByIds(ids: number[]): Promise<AmoEntitySimple[]> {
+    if (!ids || ids.length === 0) return []
+    const uniqueIds = Array.from(new Set(ids))
+    const cacheKey = `contacts_ids_${uniqueIds.sort().join('_')}`
+    const cached = cacheService.get<AmoEntitySimple[]>(cacheKey)
+    if (cached) return cached
+
+    const allContacts: AmoEntitySimple[] = []
+    const chunkSize = 50
+
+    for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+      const chunk = uniqueIds.slice(i, i + chunkSize)
+      let endpoint = `/api/v4/contacts?limit=250`
+      chunk.forEach((id) => {
+        endpoint += `&filter[id][]=${id}`
+      })
+
+      const data = await this.request<{ _embedded?: { contacts?: AmoEntitySimple[] } }>(endpoint)
+      const contacts = data?._embedded?.contacts || []
+      allContacts.push(...contacts)
+    }
+
+    cacheService.set(cacheKey, allContacts, 300000)
+    return allContacts
+  }
+
+  /**
+   * 5. Беседы (GET /api/v4/talks)
    */
   async getTalks(): Promise<AmoTalk[]> {
     const cacheKey = 'talks_recent'
@@ -288,7 +349,7 @@ export class AmoClient {
   }
 
   /**
-   * 4. Звонки (GET /api/v4/calls)
+   * 6. Звонки (GET /api/v4/calls)
    */
   async getCalls(fromTimestamp: number, toTimestamp: number): Promise<any[]> {
     const cacheKey = `calls_${fromTimestamp}_${toTimestamp}`
