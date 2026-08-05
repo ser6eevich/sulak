@@ -40,7 +40,7 @@ export async function getTelegramSettings() {
 export type OrderNotificationType = 'new_order' | 'delivering' | 'delivered' | 'cancelled'
 
 /**
- * Единая отправка уведомлений по заказам в главный Telegram чат с тегами внизу
+ * Единая отправка уведомлений по заказам в главный Telegram чат с поддержкой прикреплённого фото заказа и тегами внизу
  */
 export async function sendOrderTelegramNotification(
   orderId: string,
@@ -148,17 +148,68 @@ export async function sendOrderTelegramNotification(
       ],
     }
 
-    const url = `https://api.telegram.org/bot${token}/sendMessage`
-    await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: textMessage,
-        parse_mode: 'HTML',
-        reply_markup: replyMarkup,
-      }),
-    })
+    // Извлекаем первую фото из заказа, если оно было загружено (может быть строкой или JSON-объектом)
+    let firstPhotoUrl: string | null = null
+    if (order.imageUrl) {
+      try {
+        const parsed = JSON.parse(order.imageUrl)
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+          const vals = Object.values(parsed).filter(
+            (v): v is string => typeof v === 'string' && v.startsWith('http')
+          )
+          if (vals.length > 0) firstPhotoUrl = vals[0]
+        } else if (typeof parsed === 'string' && parsed.startsWith('http')) {
+          firstPhotoUrl = parsed
+        }
+      } catch {
+        if (typeof order.imageUrl === 'string' && order.imageUrl.startsWith('http')) {
+          firstPhotoUrl = order.imageUrl
+        }
+      }
+    }
+
+    let sentWithPhoto = false
+
+    if (firstPhotoUrl) {
+      try {
+        const photoEndpoint = `https://api.telegram.org/bot${token}/sendPhoto`
+        const photoRes = await fetch(photoEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            photo: firstPhotoUrl,
+            caption: textMessage,
+            parse_mode: 'HTML',
+            reply_markup: replyMarkup,
+          }),
+        })
+
+        if (photoRes.ok) {
+          sentWithPhoto = true
+        } else {
+          const errText = await photoRes.text()
+          console.warn('Telegram sendPhoto не прошёл, отправляем sendMessage. Причина:', errText)
+        }
+      } catch (photoErr) {
+        console.warn('Ошибка при отправке sendPhoto в Telegram:', photoErr)
+      }
+    }
+
+    // Если фото нет или отправка фото не удалась — отправляем обычное текстовое сообщение
+    if (!sentWithPhoto) {
+      const textEndpoint = `https://api.telegram.org/bot${token}/sendMessage`
+      await fetch(textEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: textMessage,
+          parse_mode: 'HTML',
+          reply_markup: replyMarkup,
+        }),
+      })
+    }
   } catch (error) {
     console.error(`Ошибка отправки Telegram уведомления (${type}):`, error)
   }
