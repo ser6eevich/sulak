@@ -56,7 +56,7 @@ export async function GET(request: Request) {
         name: i.name,
         type: i.type, // 'dir' | 'file'
         path: i.path,
-        preview: i.preview || null,
+        preview: i.type === 'file' ? `/api/yandex-disk/preview-proxy?path=${encodeURIComponent(i.path)}` : null,
         file: i.file || null, // URL прямого скачивания для публичных файлов
         size: i.size || 0,
         mimeType: i.mime_type || null,
