@@ -40,6 +40,14 @@ export async function getTelegramSettings() {
 export type OrderNotificationType = 'new_order' | 'delivering' | 'delivered' | 'cancelled'
 
 /**
+ * Вспомогательная функция очистки ширины стола (например, 240/280x100 -> 240/280)
+ */
+function cleanTableSize(sizeStr?: string | null): string {
+  if (!sizeStr) return ''
+  return sizeStr.replace(/[xх*]\d+/gi, '').trim()
+}
+
+/**
  * Единая отправка уведомлений по заказам в главный Telegram чат в формате менеджеров с фото
  */
 export async function sendOrderTelegramNotification(
@@ -123,99 +131,79 @@ export async function sendOrderTelegramNotification(
     }
 
     // Собираем позиции заказа (состав и цвет)
+    const itemLines: string[] = []
     const colorSet = new Set<string>()
-
-    interface TableInfo {
-      name: string
-      size?: string | null
-      customChairs?: number | null
-    }
-
-    interface ChairInfo {
-      name: string
-      count: number
-    }
-
-    const tables: TableInfo[] = []
-    const chairsList: ChairInfo[] = []
-    const otherItems: string[] = []
 
     if (order.items && order.items.length > 0) {
       for (const item of order.items) {
-        let prodName = item.variant?.product?.name || ''
-        const sizeStr = item.customTableSize || item.variant?.size
-        const chairs = item.customChairsCount
+        let rawName = item.variant?.product?.name || ''
+        const customSize = item.customTableSize || item.variant?.size
+        const customChairs = item.customChairsCount
         const color = item.variant?.color
 
         if (color && color.trim()) {
           colorSet.add(color.trim())
         }
 
-        // Очищаем старые упоминания стульев из названия
-        if (chairs) {
-          prodName = prodName
-            .replace(/\s*\+\s*\d+\s*стул\S*/gi, '')
-            .replace(/\s*\b1\+\d+\b/gi, '')
-            .replace(/\s*\b\d+\s*стул\S*/gi, '')
-            .trim()
+        // 1. Заменяем "комплект" / "Комплект" на "Стол"
+        let name = rawName.replace(/^комплект\s+/i, 'Стол ')
+
+        // 2. Убираем артикулы (арт. xxx или (арт. xxx))
+        name = name.replace(/\s*\(арт\.[^)]+\)/gi, '').replace(/\s*арт\.\s*\S+/gi, '').trim()
+
+        let defaultChairCount: number | null = null
+        let defaultSize = ''
+
+        // 3. Извлекаем количество стульев по умолчанию из конца названия (например, " 8" на конце "комплект Голд + Мини шейх 240/280x100 8")
+        const trailingNumMatch = name.match(/\s+(\d+)\s*$/)
+        if (trailingNumMatch) {
+          defaultChairCount = parseInt(trailingNumMatch[1], 10)
+          name = name.replace(/\s+\d+\s*$/, '').trim()
         }
 
-        // Убираем артикулы из названия
-        prodName = prodName.replace(/\s*\(арт\.[^)]+\)/gi, '').replace(/\s*арт\.\s*\S+/gi, '').trim()
+        // 4. Извлекаем размер по умолчанию из названия (например, 240/280x100 или 200/240)
+        const sizeMatch = name.match(/\b\d{2,3}\/\d{2,3}(?:[xх*]\d{2,3})?\b/i)
+        if (sizeMatch) {
+          defaultSize = cleanTableSize(sizeMatch[0])
+          name = name.replace(/\b\d{2,3}\/\d{2,3}(?:[xх*]\d{2,3})?\b/gi, '').trim()
+        }
 
-        const lowerName = prodName.toLowerCase()
+        let tableName = name
+        let chairModel = ''
 
-        if (lowerName.includes('стул') && !lowerName.includes('стол')) {
-          // Отдельные стулья
-          const cleanChairName = prodName.replace(/стул(ья|ей|а)?/gi, '').trim()
-          chairsList.push({
-            name: cleanChairName || prodName,
-            count: chairs || item.quantity || 1,
-          })
-        } else if (lowerName.includes('стол') || lowerName.includes('комплект')) {
-          // Стол или комплект
-          tables.push({
-            name: prodName,
-            size: sizeStr,
-            customChairs: chairs,
-          })
+        // 5. Разделяем по знаком "+" на стол и стулья
+        if (name.includes('+')) {
+          const parts = name.split('+')
+          tableName = parts[0].trim()
+          chairModel = parts[1].replace(/стул(ья|ей|а)?/gi, '').trim()
         } else {
-          // Прочие товары
-          let line = prodName
-          if (sizeStr) line += ` ${sizeStr}`
-          if (item.quantity > 1) line += ` (${item.quantity} шт)`
-          otherItems.push(line)
+          tableName = name.trim()
         }
-      }
-    }
 
-    const itemLines: string[] = []
+        // Финальный размер стола без ширины (например 240/280)
+        const finalSize = cleanTableSize(customSize) || defaultSize
+        // Финальное количество стульев (если пользователь переопределил руками — берём руками, иначе по умолчанию)
+        const finalChairCount = customChairs !== null && customChairs !== undefined ? customChairs : defaultChairCount
 
-    // Формируем красивую объединяющую строку «Стол [Название] [Размер] + [Кол-во] стульев [Модель]»
-    if (tables.length > 0) {
-      for (const t of tables) {
-        let tLine = t.name
-        if (t.size) tLine += ` ${t.size}`
+        // Собираем идеальную строку
+        let formattedLine = tableName
+        if (finalSize) {
+          formattedLine += ` ${finalSize}`
+        }
 
-        const totalChairsCount = t.customChairs || (chairsList.length > 0 ? chairsList.reduce((sum, c) => sum + c.count, 0) : 0)
-        const chairModelName = chairsList.length > 0 ? chairsList.map(c => c.name).join(', ') : ''
-
-        if (totalChairsCount > 0) {
-          tLine += ` + ${totalChairsCount} стульев`
-          if (chairModelName) {
-            tLine += ` ${chairModelName}`
+        if (finalChairCount && finalChairCount > 0) {
+          formattedLine += ` + ${finalChairCount} стульев`
+          if (chairModel) {
+            formattedLine += ` ${chairModel}`
           }
+        } else if (!tableName.toLowerCase().includes('стол') && item.quantity > 1) {
+          formattedLine += ` (${item.quantity} шт)`
         }
-        itemLines.push(tLine)
-      }
-    } else if (chairsList.length > 0) {
-      for (const c of chairsList) {
-        itemLines.push(`${c.count} стульев ${c.name}`)
-      }
-    }
 
-    if (otherItems.length > 0) {
-      itemLines.push(...otherItems)
+        if (formattedLine.trim()) {
+          itemLines.push(formattedLine.trim())
+        }
+      }
     }
 
     const itemsFormatted = itemLines.length > 0 ? itemLines.join('\n• ') : null
