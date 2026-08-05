@@ -148,9 +148,9 @@ export async function sendOrderTelegramNotification(
       ],
     }
 
-    // Извлекаем первую фото из заказа, если оно было загружено (может быть строкой или JSON-объектом)
+    // Извлекаем первую фото из заказа только для новых заказов (#новый_заказ)
     let firstPhotoUrl: string | null = null
-    if (order.imageUrl) {
+    if (type === 'new_order' && order.imageUrl) {
       try {
         const parsed = JSON.parse(order.imageUrl)
         if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
