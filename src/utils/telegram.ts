@@ -40,7 +40,7 @@ export async function getTelegramSettings() {
 export type OrderNotificationType = 'new_order' | 'delivering' | 'delivered' | 'cancelled'
 
 /**
- * Единая отправка уведомлений по заказам в главный Telegram чат с поддержкой прикреплённого фото заказа и тегами внизу
+ * Единая отправка уведомлений по заказам в главный Telegram чат в формате менеджеров с фото
  */
 export async function sendOrderTelegramNotification(
   orderId: string,
@@ -62,6 +62,15 @@ export async function sendOrderTelegramNotification(
         seller: true,
         creator: true,
         driver: true,
+        items: {
+          include: {
+            variant: {
+              include: {
+                product: true,
+              },
+            },
+          },
+        },
       },
     })
 
@@ -90,6 +99,9 @@ export async function sendOrderTelegramNotification(
       ((order.totalPrice || 0) - (order.discount || 0) + (order.deliveryPrice || 0) + (order.assemblyPrice || 0)) / 100
     ).toLocaleString('ru-RU')
 
+    const dateObj = new Date(order.createdAt)
+    const formattedDate = `${String(dateObj.getDate()).padStart(2, '0')}.${String(dateObj.getMonth() + 1).padStart(2, '0')}`
+
     const appUrl = siteUrl || process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://sulak.ru'
     const orderLink = `${appUrl.replace(/\/$/, '')}/orders?id=${order.number || order.id}`
 
@@ -110,23 +122,66 @@ export async function sendOrderTelegramNotification(
       title = `❌ <b>Заказ ${orderNumStr} ОТМЕНЁН</b>`
     }
 
-    let textMessage = `${title}\n`
-    textMessage += `──────────────\n`
-    textMessage += `👤 <b>Клиент:</b> ${order.client?.fullName || 'Не указан'}\n`
-    textMessage += `📞 <b>Телефон:</b> <code>${order.client?.primaryPhone || ''}</code>\n`
-    textMessage += `📍 <b>Адрес:</b> ${normalizeAddress(order.deliveryAddress) || 'Не указан'}\n`
-    textMessage += `💰 <b>Сумма:</b> ${totalPriceFormatted} ₽\n`
+    // Собираем позиции заказа (состав и цвет)
+    const itemStrings: string[] = []
+    const colorSet = new Set<string>()
+
+    if (order.items && order.items.length > 0) {
+      for (const item of order.items) {
+        const prodName = item.variant?.product?.name || ''
+        const sizeStr = item.customTableSize || item.variant?.size
+        const chairs = item.customChairsCount
+        const color = item.variant?.color
+
+        if (color && color.trim()) {
+          colorSet.add(color.trim())
+        }
+
+        let line = prodName
+        if (sizeStr) {
+          line += ` ${sizeStr}`
+        }
+        if (chairs) {
+          line += ` + ${chairs} стульев`
+        }
+        if (item.quantity > 1 && !chairs) {
+          line += ` (${item.quantity} шт)`
+        }
+
+        if (line.trim()) {
+          itemStrings.push(line.trim())
+        }
+      }
+    }
+
+    const itemsFormatted = itemStrings.length > 0 ? itemStrings.join('\n• ') : null
+    const colorFormatted = colorSet.size > 0 ? Array.from(colorSet).join(', ') : null
+
+    // Формируем текст в точности по стандарту менеджеров
+    let textMessage = `${title} ${formattedDate}\n\n`
+    textMessage += `• ${order.client?.fullName || 'Клиент не указан'}\n`
+    textMessage += `• ${normalizeAddress(order.deliveryAddress) || 'Адрес не указан'}\n`
+    if (order.client?.primaryPhone) {
+      textMessage += `• <code>${order.client.primaryPhone}</code>\n`
+    }
+    if (itemsFormatted) {
+      textMessage += `• ${itemsFormatted}\n`
+    }
+    if (colorFormatted) {
+      textMessage += `• цвет: ${colorFormatted}\n`
+    }
+    textMessage += `• ${totalPriceFormatted} ₽\n`
 
     if (type === 'delivering' || type === 'delivered') {
-      textMessage += `🚗 <b>Водитель:</b> ${order.driver?.fullName || 'Не назначен'}\n`
+      textMessage += `• Водитель: ${order.driver?.fullName || 'Не назначен'}\n`
     }
 
     if (type === 'cancelled' && cancellationReason) {
-      textMessage += `📝 <b>Причина отмены:</b> ${cancellationReason}\n`
+      textMessage += `• Причина отмены: ${cancellationReason}\n`
     }
 
     textMessage += `──────────────\n`
-    textMessage += `👨‍💼 <b>Продавец:</b> ${managerName} ${managerTag ? `(${managerTag})` : ''}\n`
+    textMessage += `👨‍💼 Продавец: ${managerName} ${managerTag ? `(${managerTag})` : ''}\n`
 
     if (type === 'delivered') {
       const tagMention = managerTag 
