@@ -148,29 +148,29 @@ export async function sendOrderTelegramNotification(
       ],
     }
 
-    // Извлекаем первую фото из заказа только для новых заказов (#новый_заказ)
-    let firstPhotoUrl: string | null = null
+    // Извлекаем все фото из заказа только для новых заказов (#новый_заказ)
+    let photoUrls: string[] = []
     if (type === 'new_order' && order.imageUrl) {
       try {
         const parsed = JSON.parse(order.imageUrl)
         if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-          const vals = Object.values(parsed).filter(
+          photoUrls = Object.values(parsed).filter(
             (v): v is string => typeof v === 'string' && v.startsWith('http')
           )
-          if (vals.length > 0) firstPhotoUrl = vals[0]
         } else if (typeof parsed === 'string' && parsed.startsWith('http')) {
-          firstPhotoUrl = parsed
+          photoUrls = [parsed]
         }
       } catch {
         if (typeof order.imageUrl === 'string' && order.imageUrl.startsWith('http')) {
-          firstPhotoUrl = order.imageUrl
+          photoUrls = [order.imageUrl]
         }
       }
     }
 
     let sentWithPhoto = false
 
-    if (firstPhotoUrl) {
+    if (photoUrls.length === 1) {
+      // Одно фото — отправляем sendPhoto с кнопкой
       try {
         const photoEndpoint = `https://api.telegram.org/bot${token}/sendPhoto`
         const photoRes = await fetch(photoEndpoint, {
@@ -178,7 +178,7 @@ export async function sendOrderTelegramNotification(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             chat_id: chatId,
-            photo: firstPhotoUrl,
+            photo: photoUrls[0],
             caption: textMessage,
             parse_mode: 'HTML',
             reply_markup: replyMarkup,
@@ -193,6 +193,45 @@ export async function sendOrderTelegramNotification(
         }
       } catch (photoErr) {
         console.warn('Ошибка при отправке sendPhoto в Telegram:', photoErr)
+      }
+    } else if (photoUrls.length > 1) {
+      // Несколько фото подзаказов — отправляем единым альбомом через sendMediaGroup
+      try {
+        const mediaEndpoint = `https://api.telegram.org/bot${token}/sendMediaGroup`
+        const media = photoUrls.slice(0, 10).map((url, idx) => ({
+          type: 'photo',
+          media: url,
+          ...(idx === 0 ? { caption: textMessage, parse_mode: 'HTML' } : {}),
+        }))
+
+        const mediaRes = await fetch(mediaEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            media,
+          }),
+        })
+
+        if (mediaRes.ok) {
+          sentWithPhoto = true
+          // Отправляем кнопку ссылки на заказ дополнительной строчкой
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: `🔗 <a href="${orderLink}">Перейти к заказу ${orderNumStr}</a>`,
+              parse_mode: 'HTML',
+              disable_web_page_preview: true,
+            }),
+          }).catch(() => {})
+        } else {
+          const errText = await mediaRes.text()
+          console.warn('Telegram sendMediaGroup не прошёл, отправляем sendMessage. Причина:', errText)
+        }
+      } catch (mediaErr) {
+        console.warn('Ошибка при отправке sendMediaGroup в Telegram:', mediaErr)
       }
     }
 
