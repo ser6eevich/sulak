@@ -118,7 +118,7 @@ export async function sendOrderTelegramNotification(
 
     if (type === 'new_order') {
       footerTag = '#новый_заказ'
-      title = `🛍️ <b>Новый заказ ${orderNumStr}</b>`
+      title = `<b>Заказ ${orderNumStr}</b>`
     } else if (type === 'delivering') {
       footerTag = '#доставляется'
       title = `🚚 <b>Заказ ${orderNumStr} передан в доставку</b>`
