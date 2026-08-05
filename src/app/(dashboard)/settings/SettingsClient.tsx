@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useTransition } from 'react'
-import { saveTelegramSettingsAction, testTelegramNotificationAction } from './actions'
+import { saveTelegramSettingsAction, testTelegramNotificationAction, saveYandexDiskSettingsAction } from './actions'
 import { saveAmoCrmCredentialsAction } from '@/app/(dashboard)/analytics/daily-report/actions'
 import { saveAvitoSettingsAction, sendLatestReviewPerAccountAction, AvitoAccountInput } from './actions'
 import { 
@@ -37,7 +37,8 @@ import {
   Eye,
   EyeOff,
   BarChart3,
-  Star
+  Star,
+  Folder
 } from 'lucide-react'
 
 interface Profile {
@@ -76,6 +77,8 @@ interface SettingsClientProps {
     isConnected: boolean
   }
   initialAvitoAccounts?: AvitoAccountInput[]
+  initialYandexDiskPublicUrl?: string
+  initialYandexDiskToken?: string
   initialManagers?: ManagerProfile[]
   initialUsers?: Profile[]
   currentUserId?: string
@@ -133,12 +136,20 @@ export default function SettingsClient({
   initialSiteUrl = '',
   initialAmoSettings,
   initialAvitoAccounts,
+  initialYandexDiskPublicUrl = '',
+  initialYandexDiskToken = '',
   initialManagers = [],
   initialUsers = [],
   currentUserId = '',
   userRole = 'admin'
 }: SettingsClientProps) {
-  const [activeTab, setActiveTab] = useState<'telegram' | 'memo' | 'team' | 'amocrm' | 'avito'>('telegram')
+  const [activeTab, setActiveTab] = useState<'telegram' | 'memo' | 'team' | 'amocrm' | 'avito' | 'yandex'>('telegram')
+
+  // Яндекс.Диск
+  const [yandexDiskPublicUrl, setYandexDiskPublicUrl] = useState(initialYandexDiskPublicUrl)
+  const [yandexDiskToken, setYandexDiskToken] = useState(initialYandexDiskToken)
+  const [yandexSaveMsg, setYandexSaveMsg] = useState('')
+  const [yandexSaveLoading, setYandexSaveLoading] = useState(false)
 
   // amoCRM интеграция
   const [amoSubdomain, setAmoSubdomain] = useState(initialAmoSettings?.subdomain || '')
@@ -407,6 +418,18 @@ export default function SettingsClient({
         >
           <Star className="h-4 w-4 text-[var(--accent-primary)]" />
           Авито · Отзывы
+        </button>
+
+        <button
+          onClick={() => setActiveTab('yandex')}
+          className={`flex items-center gap-2 px-5 py-3 text-xs font-semibold uppercase tracking-wider rounded-t-md border-b-2 transition-all cursor-pointer ${
+            activeTab === 'yandex'
+              ? 'border-[var(--accent-primary)] text-[var(--accent-primary)] bg-[var(--accent-soft)]/30 font-bold'
+              : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
+          }`}
+        >
+          <Folder className="h-4 w-4 text-[var(--accent-primary)]" />
+          Яндекс.Диск
         </button>
 
         <button
@@ -1018,6 +1041,91 @@ export default function SettingsClient({
                     <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Сохранение...</>
                   ) : (
                     <><Save className="h-3.5 w-3.5" /> Сохранить настройки Авито</>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'yandex' && (
+        <div className="space-y-6">
+          <div className="erp-card p-6 space-y-6">
+            <div className="flex items-center justify-between pb-4 border-b border-[var(--border-primary)]">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-yellow-500/10 text-yellow-600 dark:text-yellow-500">
+                  <Folder className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-[var(--text-primary)]">Интеграция с Яндекс.Диском</h2>
+                  <p className="text-xs text-[var(--text-tertiary)] mt-0.5">
+                    Подключение общей галереи фотографий склада для быстрого выбора снимков при оформлении заказов
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {yandexSaveMsg && (
+              <div className={`p-3 rounded-lg text-xs font-medium ${
+                yandexSaveMsg.startsWith('Ошибка')
+                  ? 'bg-red-500/10 text-red-600 border border-red-500/20'
+                  : 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20'
+              }`}>
+                {yandexSaveMsg}
+              </div>
+            )}
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault()
+                setYandexSaveLoading(true)
+                setYandexSaveMsg('')
+                const res = await saveYandexDiskSettingsAction(yandexDiskPublicUrl, yandexDiskToken)
+                setYandexSaveLoading(false)
+                setYandexSaveMsg(res.error ? `Ошибка: ${res.error}` : '✅ Настройки Яндекс.Диска успешно сохранены!')
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1">
+                  Публичная ссылка на папку Яндекс.Диска (Рекомендуется)
+                </label>
+                <input
+                  type="url"
+                  value={yandexDiskPublicUrl}
+                  onChange={(e) => setYandexDiskPublicUrl(e.target.value)}
+                  placeholder="https://disk.yandex.ru/d/..."
+                  className="erp-input text-xs w-full font-mono"
+                />
+                <p className="text-[11px] text-[var(--text-tertiary)] mt-1">
+                  Вставьте ссылку на общую папку с фотографиями столов и стульев на Яндекс.Диске. Менеджеры смогут открывать эти папки прямо в форме заказа.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1">
+                  OAuth Токен Яндекс.Диска (Для закрытых папок, опционально)
+                </label>
+                <input
+                  type="password"
+                  value={yandexDiskToken}
+                  onChange={(e) => setYandexDiskToken(e.target.value)}
+                  placeholder="y0_AgAAA..."
+                  className="erp-input text-xs w-full font-mono"
+                />
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  type="submit"
+                  disabled={yandexSaveLoading}
+                  className="erp-button-primary text-xs flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {yandexSaveLoading ? (
+                    <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Сохранение...</>
+                  ) : (
+                    <><Save className="h-3.5 w-3.5" /> Сохранить настройки Яндекс.Диска</>
                   )}
                 </button>
               </div>

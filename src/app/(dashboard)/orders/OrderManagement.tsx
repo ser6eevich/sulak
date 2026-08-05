@@ -14,6 +14,7 @@ import {
   batchUpdateOrdersDeliveredAction
 } from './actions'
 import { normalizeAddress } from '@/utils/address'
+import { YandexDiskPickerModal } from '@/components/orders/YandexDiskPickerModal'
 import { 
   Plus, 
   Search, 
@@ -375,11 +376,31 @@ export default function OrderManagement({
   }, [quickStatusModalOpen, selectingItemIndex, createModalOpen, selectedOrder, clientName, clientPhone, deliveryAddress, comment, editingOrderId, orderItemsList])
   const [errorMsg, setErrorMsg] = useState('')
 
-  // Фото по подзаказам при создании заказа: { subOrderIndex: url }
   const [subOrderImages, setSubOrderImages] = useState<Record<number, string>>({})
   const [imageUploading, setImageUploading] = useState(false)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
+
+  // Яндекс.Диск модальное окно выбора фото
+  const [yandexPickerOpen, setYandexPickerOpen] = useState(false)
+  const [yandexPickerSubOrderIdx, setYandexPickerSubOrderIdx] = useState<number | null>(null)
+
+  const handleSelectYandexDiskImage = async (imageUrl: string, subIdx: number | null) => {
+    if (selectedOrder) {
+      setLoading('image')
+      const updateRes = await updateOrderImageAction(selectedOrder.id, imageUrl, subIdx)
+      setLoading(null)
+      if (updateRes.error) {
+        alert(updateRes.error)
+      } else if (updateRes.imageUrl !== undefined) {
+        setSelectedOrder(prev => prev ? { ...prev, imageUrl: updateRes.imageUrl } : null)
+        setOrders(prev => prev.map(o => o.id === selectedOrder.id ? { ...o, imageUrl: updateRes.imageUrl } : o))
+      }
+    } else {
+      const targetSubIdx = subIdx ?? 0
+      setSubOrderImages(prev => ({ ...prev, [targetSubIdx]: imageUrl }))
+    }
+  }
 
   // Глобальный paste-listener: fallback для clipboard.read() на macOS/Yandex Browser
   useEffect(() => {
@@ -1430,6 +1451,18 @@ export default function OrderManagement({
                                   
                                   {canEditPhotos && (
                                     <div className="absolute top-1 right-1 flex gap-1 bg-black/60 p-0.5 rounded backdrop-blur-xs">
+                                      <button
+                                        type="button"
+                                        title="Выбрать из Яндекс.Диска"
+                                        onClick={() => {
+                                          setYandexPickerSubOrderIdx(subIdx)
+                                          setYandexPickerOpen(true)
+                                        }}
+                                        className="p-1 hover:bg-yellow-500/50 text-white rounded transition-colors cursor-pointer"
+                                      >
+                                        <Folder className="h-3 w-3 text-yellow-400" />
+                                      </button>
+
                                       <label
                                         htmlFor={`update-image-input-${subIdx}`}
                                         title="Заменить фото"
@@ -1451,22 +1484,36 @@ export default function OrderManagement({
                                   )}
                                 </div>
                               ) : (
-                                <div className="flex flex-col items-center justify-center border border-dashed border-[var(--border-strong)] rounded-md bg-[var(--bg-surface-secondary)] h-24 w-28 p-2 text-center">
-                                  <p className="text-[10px] text-[var(--text-tertiary)] mb-1">Нет фото</p>
+                                <div className="flex flex-col items-center justify-center border border-dashed border-[var(--border-strong)] rounded-md bg-[var(--bg-surface-secondary)] h-24 w-28 p-1.5 text-center">
+                                  <p className="text-[9px] text-[var(--text-tertiary)] mb-1 font-medium">Нет фото</p>
                                   {canEditPhotos && (
                                     <div className="flex flex-col gap-1 w-full">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setYandexPickerSubOrderIdx(subIdx)
+                                          setYandexPickerOpen(true)
+                                        }}
+                                        disabled={loading === 'image'}
+                                        className="inline-flex items-center justify-center gap-1 py-0.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-600 dark:text-yellow-500 text-[9px] font-semibold rounded transition-colors cursor-pointer disabled:opacity-50"
+                                      >
+                                        <Folder className="h-2.5 w-2.5" />
+                                        Я.Диск
+                                      </button>
+                                      
                                       <label
                                         htmlFor={`update-image-input-${subIdx}`}
-                                        className="inline-flex items-center justify-center gap-1 py-1 bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-primary)] text-[9px] font-semibold rounded border border-[var(--border-primary)] cursor-pointer select-none transition-colors"
+                                        className="inline-flex items-center justify-center gap-1 py-0.5 bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-primary)] text-[9px] font-semibold rounded border border-[var(--border-primary)] cursor-pointer select-none transition-colors"
                                       >
                                         <Paperclip className="h-2.5 w-2.5" />
                                         Файл
                                       </label>
+
                                       <button
                                         type="button"
                                         onClick={() => handleSubOrderImagePaste(subIdx)}
                                         disabled={loading === 'image'}
-                                        className="inline-flex items-center justify-center gap-1 py-1 bg-[#4B63FF]/10 hover:bg-[#4B63FF]/20 text-[#4B63FF] text-[9px] font-semibold rounded transition-colors cursor-pointer disabled:opacity-50"
+                                        className="inline-flex items-center justify-center gap-1 py-0.5 bg-[#4B63FF]/10 hover:bg-[#4B63FF]/20 text-[#4B63FF] text-[9px] font-semibold rounded transition-colors cursor-pointer disabled:opacity-50"
                                       >
                                         <Clipboard className="h-2.5 w-2.5" />
                                         Вставить
@@ -2219,19 +2266,33 @@ export default function OrderManagement({
                               </div>
                             </div>
                           ) : (
-                            <div className="flex gap-2">
+                            <div className="flex gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setYandexPickerSubOrderIdx(subIdx)
+                                  setYandexPickerOpen(true)
+                                }}
+                                disabled={imageUploading}
+                                className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-2 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-600 dark:text-yellow-500 text-[10px] font-semibold rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                <Folder className="h-3 w-3" />
+                                Я.Диск
+                              </button>
+
                               <label
                                 htmlFor={`create-image-input-${subIdx}`}
-                                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-active)] text-[var(--text-secondary)] text-[10px] font-semibold rounded-md border border-[var(--border-primary)] cursor-pointer select-none transition-colors"
+                                className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-2 bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-active)] text-[var(--text-secondary)] text-[10px] font-semibold rounded-md border border-[var(--border-primary)] cursor-pointer select-none transition-colors"
                               >
                                 <Paperclip className="h-3 w-3" />
-                                {imageUploading ? 'Загрузка...' : 'Загрузить фото'}
+                                {imageUploading ? 'Загрузка...' : 'Файл'}
                               </label>
+
                               <button
                                 type="button"
                                 onClick={() => handleCreateImagePaste(subIdx)}
                                 disabled={imageUploading}
-                                className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-[#4B63FF]/10 hover:bg-[#4B63FF]/20 text-[#4B63FF] text-[10px] font-semibold rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                                className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-2 bg-[#4B63FF]/10 hover:bg-[#4B63FF]/20 text-[#4B63FF] text-[10px] font-semibold rounded-md transition-colors cursor-pointer disabled:opacity-50"
                               >
                                 <Clipboard className="h-3 w-3" />
                                 Вставить
@@ -3008,6 +3069,13 @@ export default function OrderManagement({
           </div>
         </div>
       )}
+
+      {/* Модальное окно выбора фото из Яндекс.Диска */}
+      <YandexDiskPickerModal
+        isOpen={yandexPickerOpen}
+        onClose={() => setYandexPickerOpen(false)}
+        onSelectImage={(imageUrl) => handleSelectYandexDiskImage(imageUrl, yandexPickerSubOrderIdx)}
+      />
     </div>
   )
 }

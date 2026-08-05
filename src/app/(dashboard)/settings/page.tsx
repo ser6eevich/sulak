@@ -99,6 +99,16 @@ export default async function SettingsPage() {
     orderBy: { fullName: 'asc' },
   })
 
+  const yandexSettingsRows = await prisma.systemSetting.findMany({
+    where: { key: { in: ['yandex_disk_public_url', 'yandex_disk_token'] } }
+  })
+  let yandexPublicUrl = process.env.YANDEX_DISK_PUBLIC_URL || ''
+  let yandexToken = process.env.YANDEX_DISK_TOKEN || ''
+  for (const r of yandexSettingsRows) {
+    if (r.key === 'yandex_disk_public_url' && r.value) yandexPublicUrl = r.value
+    if (r.key === 'yandex_disk_token' && r.value) yandexToken = r.value
+  }
+
   return (
     <div className="w-full max-w-7xl mx-auto space-y-6 select-none">
       <div>
@@ -107,7 +117,7 @@ export default async function SettingsPage() {
           Настройки системы и команды
         </h1>
         <p className="text-xs font-normal text-[var(--text-secondary)] mt-1">
-          Управление интеграциями Telegram, ID тем (топиков) группы, порогами простоя заказов и командой сотрудников
+          Управление интеграциями Telegram, Яндекс.Диском, Авито, amoCRM и командой сотрудников
         </p>
       </div>
 
@@ -121,6 +131,8 @@ export default async function SettingsPage() {
         initialSiteUrl={siteUrl}
         initialAmoSettings={amoSettings}
         initialAvitoAccounts={avitoAccounts}
+        initialYandexDiskPublicUrl={yandexPublicUrl}
+        initialYandexDiskToken={yandexToken}
         initialManagers={initialManagers}
         initialUsers={allUsers}
         currentUserId={user.id}

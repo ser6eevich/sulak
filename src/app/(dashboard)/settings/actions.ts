@@ -262,3 +262,30 @@ export async function sendLatestReviewPerAccountAction(
     return { error: error instanceof Error ? error.message : 'Ошибка отправки отзывов Авито' }
   }
 }
+
+export async function saveYandexDiskSettingsAction(
+  publicUrl: string,
+  token?: string
+): Promise<{ error?: string; success?: boolean }> {
+  try {
+    await checkAdminOrOwner()
+
+    await prisma.systemSetting.upsert({
+      where: { key: 'yandex_disk_public_url' },
+      update: { value: publicUrl.trim() },
+      create: { key: 'yandex_disk_public_url', value: publicUrl.trim() },
+    })
+
+    await prisma.systemSetting.upsert({
+      where: { key: 'yandex_disk_token' },
+      update: { value: (token || '').trim() },
+      create: { key: 'yandex_disk_token', value: (token || '').trim() },
+    })
+
+    revalidatePath('/settings')
+    return { success: true }
+  } catch (error: any) {
+    return { error: error?.message || 'Ошибка сохранения настроек Яндекс.Диска' }
+  }
+}
+

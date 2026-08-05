@@ -215,3 +215,14 @@ model AvitoSentReview {
   @@map("avito_sent_reviews")
 }
 
+// Таблица дедупликации и кэширования фото с Яндекс.Диска на S3
+model YandexDiskCache {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  yandexPath  String   @unique @map("yandex_path")
+  s3Url       String   @map("s3_url")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("yandex_disk_cache")
+}
+
+
