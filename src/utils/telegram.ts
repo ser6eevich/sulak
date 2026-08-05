@@ -128,7 +128,7 @@ export async function sendOrderTelegramNotification(
 
     if (order.items && order.items.length > 0) {
       for (const item of order.items) {
-        const prodName = item.variant?.product?.name || ''
+        let prodName = item.variant?.product?.name || ''
         const sizeStr = item.customTableSize || item.variant?.size
         const chairs = item.customChairsCount
         const color = item.variant?.color
@@ -136,6 +136,18 @@ export async function sendOrderTelegramNotification(
         if (color && color.trim()) {
           colorSet.add(color.trim())
         }
+
+        // Если в заказе переопределили количество стульев, убираем старое упоминание стульев из названия товара
+        if (chairs) {
+          prodName = prodName
+            .replace(/\s*\+\s*\d+\s*стул\S*/gi, '')
+            .replace(/\s*\b1\+\d+\b/gi, '')
+            .replace(/\s*\b\d+\s*стул\S*/gi, '')
+            .trim()
+        }
+
+        // Убираем возможные вкрапления артикулов (арт. xxx или SKU) из названия товара
+        prodName = prodName.replace(/\s*\(арт\.[^)]+\)/gi, '').replace(/\s*арт\.\s*\S+/gi, '').trim()
 
         let line = prodName
         if (sizeStr) {
