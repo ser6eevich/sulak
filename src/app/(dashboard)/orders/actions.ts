@@ -826,13 +826,13 @@ export async function sendTelegramNotification(orderId: string) {
     const creatorLine = order.creator ? `\n👤 <b>Оформил:</b> ${order.creator.fullName}` : ''
 
     const textMessage = `🛒 <b>Новый заказ №${order.number}</b>  |  ${formattedDate}
-─────────────────────────
+──────────────
 👤 <b>Клиент:</b> ${order.client.fullName}
 ${phoneLine}
 ${addressParts ? `📍 ${addressParts}` : ''}${sellerLine}${creatorLine}
-─────────────────────────
+──────────────
 ${subOrdersHtml.join('\n\n')}
-─────────────────────────
+──────────────
 ${priceBlock}${commentLine}`
 
     // Кнопка перехода к заказу

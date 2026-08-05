@@ -111,7 +111,7 @@ export async function sendOrderTelegramNotification(
     }
 
     let textMessage = `${title}\n`
-    textMessage += `─────────────────────────\n`
+    textMessage += `──────────────\n`
     textMessage += `👤 <b>Клиент:</b> ${order.client?.fullName || 'Не указан'}\n`
     textMessage += `📞 <b>Телефон:</b> <code>${order.client?.primaryPhone || ''}</code>\n`
     textMessage += `📍 <b>Адрес:</b> ${normalizeAddress(order.deliveryAddress) || 'Не указан'}\n`
@@ -125,7 +125,7 @@ export async function sendOrderTelegramNotification(
       textMessage += `📝 <b>Причина отмены:</b> ${cancellationReason}\n`
     }
 
-    textMessage += `─────────────────────────\n`
+    textMessage += `──────────────\n`
     textMessage += `👨‍💼 <b>Продавец:</b> ${managerName} ${managerTag ? `(${managerTag})` : ''}\n`
 
     if (type === 'delivered') {

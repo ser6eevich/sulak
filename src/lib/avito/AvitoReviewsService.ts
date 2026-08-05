@@ -115,7 +115,7 @@ async function sendReviewNotification(
   const text =
     `⭐ <b>Новый отзыв на Авито (${ratingStr})</b>\n` +
     `🏪 <b>Аккаунт:</b> ${accountName}${itemTitle}\n` +
-    `─────────────────────────\n` +
+    `──────────────\n` +
     `👤 <b>Автор:</b> ${authorName}\n` +
     `📅 <b>Дата:</b> ${date}\n` +
     (review.text
@@ -124,7 +124,7 @@ async function sendReviewNotification(
     (review.answer
       ? `\n✏️ <b>Ваш ответ:</b> <i>${review.answer.text}</i>\n`
       : '') +
-    `─────────────────────────\n` +
+    `──────────────\n` +
     `#отзыв_авито`
 
   const body: any = {

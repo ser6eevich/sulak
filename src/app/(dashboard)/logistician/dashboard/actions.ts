@@ -218,11 +218,11 @@ export async function checkAndSendDeliveryAlerts() {
 📦 Заказ <b>№${order.number}</b> находится в пути уже <b>${diffDays} ${daysWord}</b>
 📅 Отправлен: ${shippedDateStr}
 
-─────────────────────────
+──────────────
 👤 <b>Клиент:</b> ${order.client.fullName}
 📞 <b>Телефон:</b> <code>${order.client.primaryPhone}</code>
 📍 <b>Адрес:</b> ${order.deliveryAddress || 'Не указан'}
-─────────────────────────
+──────────────
 🚗 <b>Водитель:</b> ${order.driver?.fullName || '—'}
 
 ⚡️ <i>Пожалуйста, свяжитесь с заказчиком и водителем!</i>`

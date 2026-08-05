@@ -212,11 +212,11 @@ export async function sendLatestReviewPerAccountAction(
           const textMessage =
             `⭐ <b>Новый отзыв на Авито (${ratingStr})</b>\n` +
             `🏪 <b>Аккаунт:</b> ${acc.name}${itemTitle}\n` +
-            `─────────────────────────\n` +
+            `──────────────\n` +
             `👤 <b>Автор:</b> ${authorName}\n` +
             `📅 <b>Дата:</b> ${date}\n` +
             (latest.text ? `\n💬 <i>${latest.text}</i>\n` : `\n<i>(Отзыв без текста)</i>\n`) +
-            `─────────────────────────\n` +
+            `──────────────\n` +
             `#отзыв_авито`
 
           const payload: any = {
