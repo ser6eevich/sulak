@@ -31,9 +31,11 @@ export function YandexDiskPickerModal({ isOpen, onClose, onSelectImage }: Yandex
 
   useEffect(() => {
     if (isOpen) {
-      loadResources(currentPath)
+      setCurrentPath('/')
+      setPathHistory([{ name: 'Корень', path: '/' }])
+      loadResources('/')
     }
-  }, [isOpen, currentPath])
+  }, [isOpen])
 
   const loadResources = async (path: string) => {
     setLoading(true)
@@ -58,6 +60,7 @@ export function YandexDiskPickerModal({ isOpen, onClose, onSelectImage }: Yandex
   const handleOpenFolder = (folderName: string, folderPath: string) => {
     setCurrentPath(folderPath)
     setPathHistory(prev => [...prev, { name: folderName, path: folderPath }])
+    loadResources(folderPath)
   }
 
   const handleNavigateBreadcrumb = (index: number) => {
@@ -65,6 +68,7 @@ export function YandexDiskPickerModal({ isOpen, onClose, onSelectImage }: Yandex
     if (target) {
       setCurrentPath(target.path)
       setPathHistory(prev => prev.slice(0, index + 1))
+      loadResources(target.path)
     }
   }
 
@@ -188,7 +192,7 @@ export function YandexDiskPickerModal({ isOpen, onClose, onSelectImage }: Yandex
                       <div className="p-3 bg-yellow-500/10 text-yellow-600 dark:text-yellow-500 rounded-xl mb-2 group-hover:scale-110 transition">
                         <Folder className="w-8 h-8 fill-current stroke-none" />
                       </div>
-                      <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 truncate w-full">
+                      <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 line-clamp-3 break-words w-full leading-snug" title={item.name}>
                         {item.name}
                       </span>
                     </button>
@@ -222,7 +226,7 @@ export function YandexDiskPickerModal({ isOpen, onClose, onSelectImage }: Yandex
                       )}
                     </div>
                     <div className="p-2">
-                      <p className="text-[11px] font-medium text-zinc-700 dark:text-zinc-300 truncate" title={item.name}>
+                      <p className="text-[11px] font-medium text-zinc-700 dark:text-zinc-300 line-clamp-2 break-words leading-tight" title={item.name}>
                         {item.name}
                       </p>
                     </div>
