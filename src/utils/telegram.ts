@@ -123,8 +123,22 @@ export async function sendOrderTelegramNotification(
     }
 
     // Собираем позиции заказа (состав и цвет)
-    const itemStrings: string[] = []
     const colorSet = new Set<string>()
+
+    interface TableInfo {
+      name: string
+      size?: string | null
+      customChairs?: number | null
+    }
+
+    interface ChairInfo {
+      name: string
+      count: number
+    }
+
+    const tables: TableInfo[] = []
+    const chairsList: ChairInfo[] = []
+    const otherItems: string[] = []
 
     if (order.items && order.items.length > 0) {
       for (const item of order.items) {
@@ -137,7 +151,7 @@ export async function sendOrderTelegramNotification(
           colorSet.add(color.trim())
         }
 
-        // Если в заказе переопределили количество стульев, убираем старое упоминание стульев из названия товара
+        // Очищаем старые упоминания стульев из названия
         if (chairs) {
           prodName = prodName
             .replace(/\s*\+\s*\d+\s*стул\S*/gi, '')
@@ -146,27 +160,65 @@ export async function sendOrderTelegramNotification(
             .trim()
         }
 
-        // Убираем возможные вкрапления артикулов (арт. xxx или SKU) из названия товара
+        // Убираем артикулы из названия
         prodName = prodName.replace(/\s*\(арт\.[^)]+\)/gi, '').replace(/\s*арт\.\s*\S+/gi, '').trim()
 
-        let line = prodName
-        if (sizeStr) {
-          line += ` ${sizeStr}`
-        }
-        if (chairs) {
-          line += ` + ${chairs} стульев`
-        }
-        if (item.quantity > 1 && !chairs) {
-          line += ` (${item.quantity} шт)`
-        }
+        const lowerName = prodName.toLowerCase()
 
-        if (line.trim()) {
-          itemStrings.push(line.trim())
+        if (lowerName.includes('стул') && !lowerName.includes('стол')) {
+          // Отдельные стулья
+          const cleanChairName = prodName.replace(/стул(ья|ей|а)?/gi, '').trim()
+          chairsList.push({
+            name: cleanChairName || prodName,
+            count: chairs || item.quantity || 1,
+          })
+        } else if (lowerName.includes('стол') || lowerName.includes('комплект')) {
+          // Стол или комплект
+          tables.push({
+            name: prodName,
+            size: sizeStr,
+            customChairs: chairs,
+          })
+        } else {
+          // Прочие товары
+          let line = prodName
+          if (sizeStr) line += ` ${sizeStr}`
+          if (item.quantity > 1) line += ` (${item.quantity} шт)`
+          otherItems.push(line)
         }
       }
     }
 
-    const itemsFormatted = itemStrings.length > 0 ? itemStrings.join('\n• ') : null
+    const itemLines: string[] = []
+
+    // Формируем красивую объединяющую строку «Стол [Название] [Размер] + [Кол-во] стульев [Модель]»
+    if (tables.length > 0) {
+      for (const t of tables) {
+        let tLine = t.name
+        if (t.size) tLine += ` ${t.size}`
+
+        const totalChairsCount = t.customChairs || (chairsList.length > 0 ? chairsList.reduce((sum, c) => sum + c.count, 0) : 0)
+        const chairModelName = chairsList.length > 0 ? chairsList.map(c => c.name).join(', ') : ''
+
+        if (totalChairsCount > 0) {
+          tLine += ` + ${totalChairsCount} стульев`
+          if (chairModelName) {
+            tLine += ` ${chairModelName}`
+          }
+        }
+        itemLines.push(tLine)
+      }
+    } else if (chairsList.length > 0) {
+      for (const c of chairsList) {
+        itemLines.push(`${c.count} стульев ${c.name}`)
+      }
+    }
+
+    if (otherItems.length > 0) {
+      itemLines.push(...otherItems)
+    }
+
+    const itemsFormatted = itemLines.length > 0 ? itemLines.join('\n• ') : null
     const colorFormatted = colorSet.size > 0 ? Array.from(colorSet).join(', ') : null
 
     // Формируем текст в точности по стандарту менеджеров
