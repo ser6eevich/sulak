@@ -247,6 +247,7 @@ export async function sendOrderTelegramNotification(
     }
 
     textMessage += `\n${footerTag}`
+    textMessage += `\n👉 <a href="${orderLink}"><b>Открыть заказ ${orderNumStr} в CRM</b></a>`
 
     const replyMarkup = {
       inline_keyboard: [
@@ -327,15 +328,15 @@ export async function sendOrderTelegramNotification(
 
         if (mediaRes.ok) {
           sentWithPhoto = true
-          // Отправляем кнопку ссылки на заказ дополнительной строчкой
+          // Отправляем настоящую inline-кнопку перехода к заказу догоняющим сообщением
           await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               chat_id: chatId,
-              text: `🔗 <a href="${orderLink}">Перейти к заказу ${orderNumStr}</a>`,
+              text: `👉 <b>Заказ №${orderNumStr}</b>`,
               parse_mode: 'HTML',
-              disable_web_page_preview: true,
+              reply_markup: replyMarkup,
             }),
           }).catch(() => {})
         } else {
