@@ -27,7 +27,8 @@ export async function saveTelegramSettingsAction(
   warehouseTag?: string,
   thresholds?: Record<string, number>,
   topics?: Record<string, string>,
-  siteUrl?: string
+  siteUrl?: string,
+  notifyFlags?: { new_order?: boolean; delivered?: boolean; cancelled?: boolean; reviews?: boolean }
 ): Promise<{ error?: string; success?: boolean }> {
   try {
     await checkAdminOrOwner()
@@ -59,6 +60,45 @@ export async function saveTelegramSettingsAction(
         create: { key: 'telegram_site_url', value: (siteUrl || '').trim() },
       }),
     ]
+
+    if (notifyFlags) {
+      if (notifyFlags.new_order !== undefined) {
+        upserts.push(
+          prisma.systemSetting.upsert({
+            where: { key: 'tg_notify_new_order' },
+            update: { value: String(notifyFlags.new_order) },
+            create: { key: 'tg_notify_new_order', value: String(notifyFlags.new_order) },
+          })
+        )
+      }
+      if (notifyFlags.delivered !== undefined) {
+        upserts.push(
+          prisma.systemSetting.upsert({
+            where: { key: 'tg_notify_delivered' },
+            update: { value: String(notifyFlags.delivered) },
+            create: { key: 'tg_notify_delivered', value: String(notifyFlags.delivered) },
+          })
+        )
+      }
+      if (notifyFlags.cancelled !== undefined) {
+        upserts.push(
+          prisma.systemSetting.upsert({
+            where: { key: 'tg_notify_cancelled' },
+            update: { value: String(notifyFlags.cancelled) },
+            create: { key: 'tg_notify_cancelled', value: String(notifyFlags.cancelled) },
+          })
+        )
+      }
+      if (notifyFlags.reviews !== undefined) {
+        upserts.push(
+          prisma.systemSetting.upsert({
+            where: { key: 'tg_notify_reviews' },
+            update: { value: String(notifyFlags.reviews) },
+            create: { key: 'tg_notify_reviews', value: String(notifyFlags.reviews) },
+          })
+        )
+      }
+    }
 
     await Promise.all(upserts)
     revalidatePath('/settings')

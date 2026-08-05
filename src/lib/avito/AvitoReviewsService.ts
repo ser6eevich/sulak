@@ -167,7 +167,7 @@ export async function checkAndNotifyAvitoReviews(): Promise<{
   const errors: string[] = []
   let newReviewsFound = 0
 
-  const { chatId, token } = await getTelegramSettings()
+  const { chatId, token, notifyFlags } = await getTelegramSettings()
 
   if (!chatId || !token) {
     return {
@@ -175,6 +175,11 @@ export async function checkAndNotifyAvitoReviews(): Promise<{
       newReviewsFound: 0,
       errors: ['Telegram не настроен (TELEGRAM_CHAT_ID / TELEGRAM_BOT_TOKEN не заданы)'],
     }
+  }
+
+  if (!notifyFlags.reviews) {
+    console.log('[AvitoReviewsService] Уведомления об отзывах Авито отключены в настройках Telegram')
+    return { checkedAccounts: 0, newReviewsFound: 0, errors: [] }
   }
 
   const accounts = await loadAvitoAccounts()

@@ -79,6 +79,7 @@ interface SettingsClientProps {
   initialAvitoAccounts?: AvitoAccountInput[]
   initialYandexDiskPublicUrl?: string
   initialYandexDiskToken?: string
+  initialNotifyFlags?: { new_order?: boolean; delivered?: boolean; cancelled?: boolean; reviews?: boolean }
   initialManagers?: ManagerProfile[]
   initialUsers?: Profile[]
   currentUserId?: string
@@ -138,12 +139,21 @@ export default function SettingsClient({
   initialAvitoAccounts,
   initialYandexDiskPublicUrl = '',
   initialYandexDiskToken = '',
+  initialNotifyFlags,
   initialManagers = [],
   initialUsers = [],
   currentUserId = '',
   userRole = 'admin'
 }: SettingsClientProps) {
   const [activeTab, setActiveTab] = useState<'telegram' | 'memo' | 'team' | 'amocrm' | 'avito' | 'yandex'>('telegram')
+
+  // Флаги включения/выключения типов уведомлений Telegram
+  const [notifyFlags, setNotifyFlags] = useState({
+    new_order: initialNotifyFlags?.new_order ?? true,
+    delivered: initialNotifyFlags?.delivered ?? true,
+    cancelled: initialNotifyFlags?.cancelled ?? true,
+    reviews: initialNotifyFlags?.reviews ?? true,
+  })
 
   // Яндекс.Диск
   const [yandexDiskPublicUrl, setYandexDiskPublicUrl] = useState(initialYandexDiskPublicUrl)
@@ -263,7 +273,7 @@ export default function SettingsClient({
     setSaveErrorMsg('')
     setSaving(true)
 
-    const result = await saveTelegramSettingsAction(chatId, botToken, ownerTag, warehouseTag, thresholds, topics, siteUrl)
+    const result = await saveTelegramSettingsAction(chatId, botToken, ownerTag, warehouseTag, thresholds, topics, siteUrl, notifyFlags)
     setSaving(false)
 
     if (result.error) {
@@ -570,6 +580,87 @@ export default function SettingsClient({
                     onChange={e => setWarehouseTag(e.target.value)}
                     className="erp-input w-full font-mono text-xs"
                   />
+                </div>
+              </div>
+            </div>
+
+            {/* Тумблеры включения/выключения отдельных типов уведомлений */}
+            <div className="p-4 bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded-lg space-y-4">
+              <h3 className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wider flex items-center gap-2">
+                <Bot className="h-4 w-4 text-[var(--accent-primary)]" />
+                Включение и выключение оповещений по типам событий
+              </h3>
+              <p className="text-[11px] text-[var(--text-secondary)]">
+                Управляйте отправкой уведомлений. Вы можете отключить определенные типы сообщений в Telegram.
+              </p>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {/* 1. Новые заказы */}
+                <div className="p-3 bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-md flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-semibold text-[var(--text-primary)] block">📋 Новые заказы</span>
+                    <span className="text-[10px] text-[var(--text-tertiary)]">Оповещения `#новый_заказ` при создании</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={notifyFlags.new_order}
+                      onChange={e => setNotifyFlags(prev => ({ ...prev, new_order: e.target.checked }))}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-zinc-300 peer-focus:outline-none rounded-full peer dark:bg-zinc-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+
+                {/* 2. Доставленные заказы */}
+                <div className="p-3 bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-md flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-semibold text-[var(--text-primary)] block">✅ Доставленные заказы</span>
+                    <span className="text-[10px] text-[var(--text-tertiary)]">Оповещения `#доставлен` при выполнении</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={notifyFlags.delivered}
+                      onChange={e => setNotifyFlags(prev => ({ ...prev, delivered: e.target.checked }))}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-zinc-300 peer-focus:outline-none rounded-full peer dark:bg-zinc-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+
+                {/* 3. Отмененные заказы */}
+                <div className="p-3 bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-md flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-semibold text-[var(--text-primary)] block">❌ Отмененные заказы</span>
+                    <span className="text-[10px] text-[var(--text-tertiary)]">Оповещения `#отмена` с причиной</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={notifyFlags.cancelled}
+                      onChange={e => setNotifyFlags(prev => ({ ...prev, cancelled: e.target.checked }))}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-zinc-300 peer-focus:outline-none rounded-full peer dark:bg-zinc-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+
+                {/* 4. Отзывы Авито */}
+                <div className="p-3 bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-md flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-semibold text-[var(--text-primary)] block">⭐ Отзывы Авито</span>
+                    <span className="text-[10px] text-[var(--text-tertiary)]">Мониторинг новых отзывов Авито</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={notifyFlags.reviews}
+                      onChange={e => setNotifyFlags(prev => ({ ...prev, reviews: e.target.checked }))}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-zinc-300 peer-focus:outline-none rounded-full peer dark:bg-zinc-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
                 </div>
               </div>
             </div>

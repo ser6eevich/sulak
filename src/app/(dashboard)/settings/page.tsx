@@ -52,7 +52,7 @@ export default async function SettingsPage() {
   }
 
   const [
-    { chatId, token, ownerTag, warehouseTag, siteUrl, thresholds, topics },
+    { chatId, token, ownerTag, warehouseTag, siteUrl, thresholds, topics, notifyFlags },
     amoSettings,
     avitoAccounts,
   ] = await Promise.all([
@@ -128,6 +128,7 @@ export default async function SettingsPage() {
         initialWarehouseTag={warehouseTag}
         initialThresholds={thresholds}
         initialTopics={topics}
+        initialNotifyFlags={notifyFlags}
         initialSiteUrl={siteUrl}
         initialAmoSettings={amoSettings}
         initialAvitoAccounts={avitoAccounts}

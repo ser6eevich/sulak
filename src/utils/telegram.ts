@@ -10,10 +10,16 @@ export async function getTelegramSettings() {
 
   const topics: Record<string, string> = {}
   const thresholds: Record<string, number> = {}
+  const notifyFlags = {
+    new_order: true,
+    delivered: true,
+    cancelled: true,
+    reviews: true,
+  }
 
   try {
     const rows = await prisma.$queryRawUnsafe<{ key: string; value: string }[]>(
-      `SELECT key, value FROM public.system_settings WHERE key LIKE 'telegram_%' OR key LIKE 'stale_threshold_%'`
+      `SELECT key, value FROM public.system_settings WHERE key LIKE 'telegram_%' OR key LIKE 'stale_threshold_%' OR key LIKE 'tg_notify_%'`
     )
     for (const r of rows) {
       if (r.key === 'telegram_chat_id' && r.value) chatId = r.value.trim()
@@ -21,6 +27,11 @@ export async function getTelegramSettings() {
       if (r.key === 'telegram_owner_tag' && r.value) ownerTag = r.value.trim()
       if (r.key === 'telegram_warehouse_tag' && r.value) warehouseTag = r.value.trim()
       if (r.key === 'telegram_site_url' && r.value) siteUrl = r.value.trim()
+
+      if (r.key === 'tg_notify_new_order') notifyFlags.new_order = r.value !== 'false'
+      if (r.key === 'tg_notify_delivered') notifyFlags.delivered = r.value !== 'false'
+      if (r.key === 'tg_notify_cancelled') notifyFlags.cancelled = r.value !== 'false'
+      if (r.key === 'tg_notify_reviews') notifyFlags.reviews = r.value !== 'false'
 
       if (r.key.startsWith('telegram_topic_')) {
         const topicKey = r.key.replace('telegram_topic_', '')
@@ -34,7 +45,7 @@ export async function getTelegramSettings() {
   if (ownerTag && !ownerTag.startsWith('@')) ownerTag = `@${ownerTag}`
   if (warehouseTag && !warehouseTag.startsWith('@')) warehouseTag = `@${warehouseTag}`
 
-  return { chatId, token, ownerTag, warehouseTag, siteUrl, topics, thresholds }
+  return { chatId, token, ownerTag, warehouseTag, siteUrl, topics, thresholds, notifyFlags }
 }
 
 export type OrderNotificationType = 'new_order' | 'delivering' | 'delivered' | 'cancelled'
@@ -56,10 +67,23 @@ export async function sendOrderTelegramNotification(
   cancellationReason?: string | null
 ) {
   try {
-    const { chatId, token, siteUrl } = await getTelegramSettings()
+    const { chatId, token, siteUrl, notifyFlags } = await getTelegramSettings()
 
     if (!token || !chatId) {
       console.warn('Telegram не настроен (BOT_TOKEN или CHAT_ID не заполнены)')
+      return
+    }
+
+    if (type === 'new_order' && !notifyFlags.new_order) {
+      console.log('Уведомления о новых заказах отключены в настройках Telegram')
+      return
+    }
+    if ((type === 'delivering' || type === 'delivered') && !notifyFlags.delivered) {
+      console.log('Уведомления о доставленных заказах отключены в настройках Telegram')
+      return
+    }
+    if (type === 'cancelled' && !notifyFlags.cancelled) {
+      console.log('Уведомления об отмене заказов отключены в настройках Telegram')
       return
     }
 
@@ -247,18 +271,7 @@ export async function sendOrderTelegramNotification(
     }
 
     textMessage += `\n${footerTag}`
-    textMessage += `\n👉 <a href="${orderLink}"><b>Открыть заказ ${orderNumStr} в CRM</b></a>`
-
-    const replyMarkup = {
-      inline_keyboard: [
-        [
-          {
-            text: `🔗 Перейти к заказу ${orderNumStr}`,
-            url: orderLink,
-          },
-        ],
-      ],
-    }
+    textMessage += `\n👉 <a href="${orderLink}"><b>Перейти к заказу ${orderNumStr}</b></a>`
 
     // Извлекаем все фото из заказа только для новых заказов (#новый_заказ)
     let photoUrls: string[] = []
@@ -283,7 +296,7 @@ export async function sendOrderTelegramNotification(
     let sentWithPhoto = false
 
     if (photoUrls.length === 1) {
-      // Одно фото — отправляем sendPhoto с кнопкой
+      // Одно фото — отправляем sendPhoto
       try {
         const photoEndpoint = `https://api.telegram.org/bot${token}/sendPhoto`
         const photoRes = await fetch(photoEndpoint, {
@@ -294,7 +307,6 @@ export async function sendOrderTelegramNotification(
             photo: photoUrls[0],
             caption: textMessage,
             parse_mode: 'HTML',
-            reply_markup: replyMarkup,
           }),
         })
 
@@ -328,17 +340,6 @@ export async function sendOrderTelegramNotification(
 
         if (mediaRes.ok) {
           sentWithPhoto = true
-          // Отправляем настоящую inline-кнопку перехода к заказу догоняющим сообщением
-          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: chatId,
-              text: `👉 <b>Заказ №${orderNumStr}</b>`,
-              parse_mode: 'HTML',
-              reply_markup: replyMarkup,
-            }),
-          }).catch(() => {})
         } else {
           const errText = await mediaRes.text()
           console.warn('Telegram sendMediaGroup не прошёл, отправляем sendMessage. Причина:', errText)
@@ -358,7 +359,6 @@ export async function sendOrderTelegramNotification(
           chat_id: chatId,
           text: textMessage,
           parse_mode: 'HTML',
-          reply_markup: replyMarkup,
         }),
       })
     }
