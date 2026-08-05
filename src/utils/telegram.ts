@@ -224,6 +224,10 @@ export async function sendOrderTelegramNotification(
     }
     textMessage += `• ${totalPriceFormatted} ₽\n`
 
+    if (order.comment && order.comment.trim()) {
+      textMessage += `• 💬 <b>Комментарий:</b> ${order.comment.trim()}\n`
+    }
+
     if (type === 'delivering' || type === 'delivered') {
       textMessage += `• Водитель: ${order.driver?.fullName || 'Не назначен'}\n`
     }
@@ -260,8 +264,9 @@ export async function sendOrderTelegramNotification(
     if (type === 'new_order' && order.imageUrl) {
       try {
         const parsed = JSON.parse(order.imageUrl)
-        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-          photoUrls = Object.values(parsed).filter(
+        if (typeof parsed === 'object' && parsed !== null) {
+          const rawValues = Object.values(parsed).flat()
+          photoUrls = rawValues.filter(
             (v): v is string => typeof v === 'string' && v.startsWith('http')
           )
         } else if (typeof parsed === 'string' && parsed.startsWith('http')) {

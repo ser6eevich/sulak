@@ -616,7 +616,12 @@ export async function updateOrderFeedbackAction(
   }
 }
 
-export async function updateOrderImageAction(orderId: string, imageUrl: string | null, subOrderIndex?: number | null) {
+export async function updateOrderImageAction(
+  orderId: string, 
+  imageUrl: string | null, 
+  subOrderIndex?: number | null,
+  deleteImageIndex?: number | null
+) {
   try {
     const currentUserId = await checkManagerOrAbove()
 

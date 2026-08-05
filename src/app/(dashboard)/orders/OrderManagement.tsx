@@ -376,7 +376,7 @@ export default function OrderManagement({
   }, [quickStatusModalOpen, selectingItemIndex, createModalOpen, selectedOrder, clientName, clientPhone, deliveryAddress, comment, editingOrderId, orderItemsList])
   const [errorMsg, setErrorMsg] = useState('')
 
-  const [subOrderImages, setSubOrderImages] = useState<Record<number, string>>({})
+  const [subOrderImages, setSubOrderImages] = useState<Record<number, string[]>>({})
   const [imageUploading, setImageUploading] = useState(false)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const [currentPage, setCurrentPage] = useState(1)
@@ -398,7 +398,10 @@ export default function OrderManagement({
       }
     } else {
       const targetSubIdx = subIdx ?? 0
-      setSubOrderImages(prev => ({ ...prev, [targetSubIdx]: imageUrl }))
+      setSubOrderImages(prev => ({
+        ...prev,
+        [targetSubIdx]: [...(prev[targetSubIdx] || []), imageUrl]
+      }))
     }
   }
 
@@ -635,10 +638,9 @@ export default function OrderManagement({
       plannedDeliveryDate: plannedDeliveryDate ? new Date(plannedDeliveryDate).toISOString() : null,
       // Собираем JSON из словаря фото: если одно фото - просто URL, если несколько - JSON
       imageUrl: (() => {
-        const keys = Object.keys(subOrderImages)
+        const keys = Object.keys(subOrderImages).filter(k => (subOrderImages[Number(k)] || []).length > 0)
         if (keys.length === 0) return null
-        if (keys.length === 1 && keys[0] === '0') return subOrderImages[0]
-        return JSON.stringify(Object.fromEntries(keys.map(k => [k, subOrderImages[Number(k)]])))
+        return JSON.stringify(subOrderImages)
       })(),
     }
 
@@ -671,21 +673,13 @@ export default function OrderManagement({
     setSellerId(order.sellerId || (order.seller ? order.seller.id : currentUserId))
     setPlannedDeliveryDate(order.plannedDeliveryDate ? new Date(order.plannedDeliveryDate).toISOString().slice(0, 10) : '')
     
-    // Подтягиваем имеющиеся фото комплекта
-    if (order.imageUrl) {
-      try {
-        const parsed = JSON.parse(order.imageUrl)
-        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-          setSubOrderImages(parsed)
-        } else {
-          setSubOrderImages({ 0: order.imageUrl })
-        }
-      } catch {
-        setSubOrderImages({ 0: order.imageUrl })
-      }
-    } else {
-      setSubOrderImages({})
+    // Подтягиваем имеющиеся фото комплекта через parseOrderImages
+    const parsed = parseOrderImages(order.imageUrl)
+    const numericSubOrderImages: Record<number, string[]> = {}
+    for (const [k, v] of Object.entries(parsed)) {
+      numericSubOrderImages[Number(k)] = v
     }
+    setSubOrderImages(numericSubOrderImages)
 
     // Собираем позиции заказа
     const mappedItems: OrderFormItem[] = order.items.map(it => {
@@ -719,7 +713,10 @@ export default function OrderManagement({
       if (!res.ok || data.error) {
         alert(data.error || 'Ошибка загрузки')
       } else if (data.imageUrl) {
-        setSubOrderImages(prev => ({ ...prev, [subIdx]: data.imageUrl }))
+        setSubOrderImages(prev => ({
+          ...prev,
+          [subIdx]: [...(prev[subIdx] || []), data.imageUrl]
+        }))
       }
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Ошибка загрузки')
@@ -750,15 +747,29 @@ export default function OrderManagement({
     alert('Нажмите Ctrl+V (⌘+V) чтобы вставить изображение из буфера обмена')
   }
 
-  // Вспомогательная функция: парсим imageUrl (может быть JSON с картами по подзаказам или просто URL)
-  const parseOrderImages = (imageUrl: string | null | undefined): Record<string, string> => {
+  // Вспомогательная функция: парсим imageUrl в карту массивов фото по подзаказам
+  const parseOrderImages = (imageUrl: string | null | undefined): Record<string, string[]> => {
     if (!imageUrl) return {}
     try {
       const parsed = JSON.parse(imageUrl)
-      if (typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        const result: Record<string, string[]> = {}
+        for (const [key, val] of Object.entries(parsed)) {
+          if (Array.isArray(val)) {
+            result[key] = val.filter((v): v is string => typeof v === 'string' && !!v.trim())
+          } else if (typeof val === 'string' && val.trim()) {
+            result[key] = [val.trim()]
+          }
+        }
+        return result
+      }
+      if (typeof parsed === 'string' && parsed.trim()) {
+        return { '0': [parsed.trim()] }
+      }
     } catch {
-      // Старый формат: просто строка URL — относим к подзаказу 0
-      return { '0': imageUrl }
+      if (typeof imageUrl === 'string' && imageUrl.trim()) {
+        return { '0': [imageUrl.trim()] }
+      }
     }
     return {}
   }
@@ -832,12 +843,12 @@ export default function OrderManagement({
     alert('Нажмите Ctrl+V (⌘+V) чтобы вставить изображение из буфера обмена')
   }
 
-  // Удаление фото конкретного подзаказа
-  const handleDeleteSubOrderImage = async (subOrderIndex: number) => {
+  // Удаление фото конкретного подзаказа (или конкретного индекса в нем)
+  const handleDeleteSubOrderImage = async (subOrderIndex: number, imageIndexToDelete?: number) => {
     if (!selectedOrder) return
-    if (!confirm('Удалить фото этого подзаказа?')) return
+    if (!confirm('Удалить эту фотографию?')) return
     setLoading('image')
-    const updateRes = await updateOrderImageAction(selectedOrder.id, null, subOrderIndex)
+    const updateRes = await updateOrderImageAction(selectedOrder.id, null, subOrderIndex, imageIndexToDelete)
     setLoading(null)
     if (updateRes.error) {
       alert(updateRes.error)
@@ -1408,118 +1419,103 @@ export default function OrderManagement({
                   </div>
                 </div>
 
-                {/* Изображение комплекта — аккуратная компактная галерея превью */}
+                {/* Изображение комплекта — аккуратная галерея с поддержкой нескольких фото на подзаказ */}
                 {(() => {
                   const imagesMap = parseOrderImages(selectedOrder.imageUrl)
                   const uniqueSubIdxs = Array.from(new Set(selectedOrder.items.map(i => i.subOrderIndex || 0))).sort((a, b) => a - b)
                   const hasMultipleSubOrders = uniqueSubIdxs.length > 1
                   const canEditPhotos = ['admin', 'owner', 'manager'].includes(userRole)
+                  const totalPhotosCount = Object.values(imagesMap).flat().length
 
                   return (
                     <div className="bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded-lg p-3.5 space-y-2.5">
                       <div className="flex items-center justify-between">
                         <h4 className="font-semibold text-xs text-[var(--text-primary)] flex items-center gap-1.5 uppercase tracking-wider">
                           <Paperclip className="h-3.5 w-3.5 text-[var(--accent-primary)]" />
-                          Фото комплекта ({uniqueSubIdxs.filter(i => !!imagesMap[String(i)]).length}/{uniqueSubIdxs.length})
+                          Фото комплекта (всего файлов: {totalPhotosCount})
                         </h4>
-                        <span className="text-[10px] text-[var(--text-tertiary)]">Нажмите на фото для просмотра</span>
+                        <span className="text-[10px] text-[var(--text-tertiary)]">Кликните на фото для просмотра</span>
                       </div>
 
-                      <div className="flex flex-wrap gap-3">
+                      <div className="space-y-3">
                         {uniqueSubIdxs.map((subIdx, idx) => {
-                          const subPhoto = imagesMap[String(subIdx)]
+                          const subPhotos = imagesMap[String(subIdx)] || []
                           return (
-                            <div key={subIdx} className="bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-lg p-2 flex flex-col items-center gap-1.5 shadow-xs relative group">
-                              <span className="text-[9px] font-semibold text-[var(--text-tertiary)] uppercase tracking-tight">
-                                {hasMultipleSubOrders ? `Подзаказ ${idx + 1}` : 'Комплект'}
-                              </span>
-
-                              {subPhoto ? (
-                                <div className="relative h-24 w-28 rounded-md overflow-hidden border border-[var(--border-primary)] bg-[var(--bg-surface-secondary)] flex items-center justify-center">
-                                  <img
-                                    src={subPhoto}
-                                    alt={hasMultipleSubOrders ? `Комплект заказа ${idx + 1}` : 'Комплект'}
-                                    className="h-full w-full object-cover cursor-zoom-in transition-transform duration-200 group-hover:scale-105"
-                                    onClick={() => setLightboxUrl(subPhoto)}
-                                  />
-                                  <div 
-                                    className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-zoom-in"
-                                    onClick={() => setLightboxUrl(subPhoto)}
-                                  >
-                                    <Eye className="h-5 w-5 text-white drop-shadow" />
+                            <div key={subIdx} className="bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-lg p-2.5 space-y-2 shadow-xs">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-tight">
+                                  {hasMultipleSubOrders ? `Подзаказ ${idx + 1}` : 'Комплект'} ({subPhotos.length} фото)
+                                </span>
+                                {canEditPhotos && (
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setYandexPickerSubOrderIdx(subIdx)
+                                        setYandexPickerOpen(true)
+                                      }}
+                                      className="inline-flex items-center gap-1 px-2 py-1 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-600 dark:text-yellow-500 text-[10px] font-semibold rounded cursor-pointer transition-colors"
+                                      title="Добавить фото из Яндекс.Диска"
+                                    >
+                                      <Folder className="h-3 w-3" />
+                                      + Я.Диск
+                                    </button>
+                                    <label
+                                      htmlFor={`update-image-input-${subIdx}`}
+                                      className="inline-flex items-center gap-1 px-2 py-1 bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-active)] text-[var(--text-primary)] text-[10px] font-semibold rounded border border-[var(--border-primary)] cursor-pointer select-none transition-colors"
+                                      title="Загрузить файл с устройства"
+                                    >
+                                      <Plus className="h-3 w-3" />
+                                      + Файл
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSubOrderImagePaste(subIdx)}
+                                      disabled={loading === 'image'}
+                                      className="inline-flex items-center gap-1 px-2 py-1 bg-[#4B63FF]/10 hover:bg-[#4B63FF]/20 text-[#4B63FF] text-[10px] font-semibold rounded transition-colors cursor-pointer disabled:opacity-50"
+                                      title="Вставить фото из буфера обмена (Ctrl+V)"
+                                    >
+                                      <Clipboard className="h-3 w-3" />
+                                      + Вставить
+                                    </button>
                                   </div>
-                                  
-                                  {canEditPhotos && (
-                                    <div className="absolute top-1 right-1 flex gap-1 bg-black/60 p-0.5 rounded backdrop-blur-xs">
-                                      <button
-                                        type="button"
-                                        title="Выбрать из Яндекс.Диска"
-                                        onClick={() => {
-                                          setYandexPickerSubOrderIdx(subIdx)
-                                          setYandexPickerOpen(true)
-                                        }}
-                                        className="p-1 hover:bg-yellow-500/50 text-white rounded transition-colors cursor-pointer"
-                                      >
-                                        <Folder className="h-3 w-3 text-yellow-400" />
-                                      </button>
+                                )}
+                              </div>
 
-                                      <label
-                                        htmlFor={`update-image-input-${subIdx}`}
-                                        title="Заменить фото"
-                                        className="p-1 hover:bg-white/20 text-white rounded transition-colors cursor-pointer select-none"
+                              {subPhotos.length > 0 ? (
+                                <div className="flex flex-wrap gap-2 pt-1">
+                                  {subPhotos.map((photoUrl, photoIdx) => (
+                                    <div key={photoIdx} className="relative h-24 w-28 rounded-md overflow-hidden border border-[var(--border-primary)] bg-[var(--bg-surface-secondary)] group">
+                                      <img
+                                        src={photoUrl}
+                                        alt={`Фото ${photoIdx + 1}`}
+                                        className="h-full w-full object-cover cursor-zoom-in transition-transform duration-200 group-hover:scale-105"
+                                        onClick={() => setLightboxUrl(photoUrl)}
+                                      />
+                                      <div 
+                                        className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-zoom-in"
+                                        onClick={() => setLightboxUrl(photoUrl)}
                                       >
-                                        <RefreshCw className="h-3 w-3" />
-                                      </label>
+                                        <Eye className="h-5 w-5 text-white drop-shadow" />
+                                      </div>
                                       
-                                      <button
-                                        type="button"
-                                        title="Удалить фото"
-                                        disabled={loading === 'image'}
-                                        onClick={() => handleDeleteSubOrderImage(subIdx)}
-                                        className="p-1 hover:bg-red-500/50 text-white rounded transition-colors cursor-pointer disabled:opacity-50"
-                                      >
-                                        <Trash2 className="h-3 w-3" />
-                                      </button>
+                                      {canEditPhotos && (
+                                        <button
+                                          type="button"
+                                          title="Удалить это фото"
+                                          disabled={loading === 'image'}
+                                          onClick={() => handleDeleteSubOrderImage(subIdx, photoIdx)}
+                                          className="absolute top-1 right-1 p-1 bg-black/60 hover:bg-red-500 text-white rounded transition-colors cursor-pointer disabled:opacity-50 opacity-0 group-hover:opacity-100"
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </button>
+                                      )}
                                     </div>
-                                  )}
+                                  ))}
                                 </div>
                               ) : (
-                                <div className="flex flex-col items-center justify-center border border-dashed border-[var(--border-strong)] rounded-md bg-[var(--bg-surface-secondary)] h-24 w-28 p-1.5 text-center">
-                                  <p className="text-[9px] text-[var(--text-tertiary)] mb-1 font-medium">Нет фото</p>
-                                  {canEditPhotos && (
-                                    <div className="flex flex-col gap-1 w-full">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setYandexPickerSubOrderIdx(subIdx)
-                                          setYandexPickerOpen(true)
-                                        }}
-                                        disabled={loading === 'image'}
-                                        className="inline-flex items-center justify-center gap-1 py-0.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-600 dark:text-yellow-500 text-[9px] font-semibold rounded transition-colors cursor-pointer disabled:opacity-50"
-                                      >
-                                        <Folder className="h-2.5 w-2.5" />
-                                        Я.Диск
-                                      </button>
-                                      
-                                      <label
-                                        htmlFor={`update-image-input-${subIdx}`}
-                                        className="inline-flex items-center justify-center gap-1 py-0.5 bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-primary)] text-[9px] font-semibold rounded border border-[var(--border-primary)] cursor-pointer select-none transition-colors"
-                                      >
-                                        <Paperclip className="h-2.5 w-2.5" />
-                                        Файл
-                                      </label>
-
-                                      <button
-                                        type="button"
-                                        onClick={() => handleSubOrderImagePaste(subIdx)}
-                                        disabled={loading === 'image'}
-                                        className="inline-flex items-center justify-center gap-1 py-0.5 bg-[#4B63FF]/10 hover:bg-[#4B63FF]/20 text-[#4B63FF] text-[9px] font-semibold rounded transition-colors cursor-pointer disabled:opacity-50"
-                                      >
-                                        <Clipboard className="h-2.5 w-2.5" />
-                                        Вставить
-                                      </button>
-                                    </div>
-                                  )}
+                                <div className="p-3 border border-dashed border-[var(--border-strong)] rounded-md bg-[var(--bg-surface-secondary)] text-center text-[10px] text-[var(--text-tertiary)]">
+                                  Нет загруженных фотографий для этого подзаказа
                                 </div>
                               )}
 
@@ -2242,63 +2238,69 @@ export default function OrderManagement({
                           <label className="erp-label">
                             {uniqueSubIdxs.length > 1 ? `Фото комплекта — Заказ ${pos + 1}` : 'Фото комплекта'}
                           </label>
-                          {subOrderImages[subIdx] ? (
-                            <div className="space-y-1.5">
-                              <img
-                                src={subOrderImages[subIdx]}
-                                alt={`Комплект заказа ${pos + 1}`}
-                                className="w-full max-h-36 object-contain rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface)]"
-                              />
-                              <div className="flex gap-2">
-                                <label
-                                  htmlFor={`create-image-input-${subIdx}`}
-                                  className="flex-1 text-center px-3 py-1 bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-active)] text-[var(--text-secondary)] text-[10px] font-medium rounded-lg border border-[var(--border-primary)] cursor-pointer select-none transition-colors"
-                                >
-                                  Заменить
-                                </label>
+                        {(() => {
+                          const currentPhotos = subOrderImages[subIdx] || []
+                          return (
+                            <div className="space-y-2">
+                              {currentPhotos.length > 0 && (
+                                <div className="flex flex-wrap gap-2 p-2 bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded-lg">
+                                  {currentPhotos.map((url, imgIdx) => (
+                                    <div key={imgIdx} className="relative h-16 w-20 rounded border border-[var(--border-primary)] overflow-hidden group">
+                                      <img src={url} alt={`Превью ${imgIdx + 1}`} className="h-full w-full object-cover" />
+                                      <button
+                                        type="button"
+                                        title="Удалить фото"
+                                        onClick={() => {
+                                          setSubOrderImages(prev => {
+                                            const updated = [...(prev[subIdx] || [])]
+                                            updated.splice(imgIdx, 1)
+                                            return { ...prev, [subIdx]: updated }
+                                          })
+                                        }}
+                                        className="absolute top-0.5 right-0.5 p-0.5 bg-black/70 hover:bg-red-500 text-white rounded transition-colors"
+                                      >
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              <div className="flex gap-1.5">
                                 <button
                                   type="button"
-                                  onClick={() => setSubOrderImages(prev => { const n = {...prev}; delete n[subIdx]; return n })}
-                                  className="flex-1 px-3 py-1 text-red-600 hover:bg-red-50 text-[10px] font-bold rounded-lg transition-colors cursor-pointer"
+                                  onClick={() => {
+                                    setYandexPickerSubOrderIdx(subIdx)
+                                    setYandexPickerOpen(true)
+                                  }}
+                                  disabled={imageUploading}
+                                  className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-600 dark:text-yellow-500 text-[10px] font-semibold rounded-md transition-colors cursor-pointer disabled:opacity-50"
                                 >
-                                  Удалить
+                                  <Folder className="h-3 w-3" />
+                                  + Я.Диск
+                                </button>
+
+                                <label
+                                  htmlFor={`create-image-input-${subIdx}`}
+                                  className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-active)] text-[var(--text-secondary)] text-[10px] font-semibold rounded-md border border-[var(--border-primary)] cursor-pointer select-none transition-colors"
+                                >
+                                  <Paperclip className="h-3 w-3" />
+                                  {imageUploading ? 'Загрузка...' : '+ Файл'}
+                                </label>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleCreateImagePaste(subIdx)}
+                                  disabled={imageUploading}
+                                  className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 bg-[#4B63FF]/10 hover:bg-[#4B63FF]/20 text-[#4B63FF] text-[10px] font-semibold rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  <Clipboard className="h-3 w-3" />
+                                  + Вставить
                                 </button>
                               </div>
                             </div>
-                          ) : (
-                            <div className="flex gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setYandexPickerSubOrderIdx(subIdx)
-                                  setYandexPickerOpen(true)
-                                }}
-                                disabled={imageUploading}
-                                className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-2 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-600 dark:text-yellow-500 text-[10px] font-semibold rounded-md transition-colors cursor-pointer disabled:opacity-50"
-                              >
-                                <Folder className="h-3 w-3" />
-                                Я.Диск
-                              </button>
-
-                              <label
-                                htmlFor={`create-image-input-${subIdx}`}
-                                className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-2 bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-active)] text-[var(--text-secondary)] text-[10px] font-semibold rounded-md border border-[var(--border-primary)] cursor-pointer select-none transition-colors"
-                              >
-                                <Paperclip className="h-3 w-3" />
-                                {imageUploading ? 'Загрузка...' : 'Файл'}
-                              </label>
-
-                              <button
-                                type="button"
-                                onClick={() => handleCreateImagePaste(subIdx)}
-                                disabled={imageUploading}
-                                className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-2 bg-[#4B63FF]/10 hover:bg-[#4B63FF]/20 text-[#4B63FF] text-[10px] font-semibold rounded-md transition-colors cursor-pointer disabled:opacity-50"
-                              >
-                                <Clipboard className="h-3 w-3" />
-                                Вставить
-                              </button>
-                            </div>
-                          )}
+                          )
+                        })()}
                           <input
                             type="file"
                             accept="image/*"
