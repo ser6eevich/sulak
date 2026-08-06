@@ -2,7 +2,6 @@ import prisma from '@/lib/prisma'
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import ManagersDashboardClient from './ManagersDashboardClient'
-import { Users } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,25 +47,19 @@ export default async function ManagersPage() {
     },
   })
 
-  const tgRows = await prisma.$queryRawUnsafe<{ id: string; telegram_username: string | null }[]>(
-    `SELECT id, telegram_username FROM public.profiles WHERE role = 'manager'`
-  )
-  const tgMap = new Map(tgRows.map(r => [r.id, r.telegram_username]))
-
   const initialManagers = managers.map(m => ({
     ...m,
-    telegramUsername: (m as any).telegramUsername || tgMap.get(m.id) || null,
+    telegramUsername: m.telegramUsername,
   }))
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-5">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight text-[var(--text-primary)] flex items-center gap-2">
-          <Users className="h-5 w-5 text-[var(--accent-primary)]" />
-          Команда менеджеров по продажам
+        <h1 className="text-xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+          Команда менеджеров
         </h1>
-        <p className="text-xs font-normal text-[var(--text-secondary)] mt-1">
-          Управление профилями менеджеров, Telegram-тегами для автоуведомлений и аналитикой закрытых сделок
+        <p className="mt-1 text-xs font-normal text-[var(--text-secondary)]">
+          Профили сотрудников, Telegram-уведомления и результаты продаж
         </p>
       </div>
 

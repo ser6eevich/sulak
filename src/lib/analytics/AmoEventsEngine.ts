@@ -62,7 +62,7 @@ export class AmoEventsEngine {
     while (true) {
       const endpoint = `/api/v4/events?limit=${limit}&page=${page}&filter[created_at][from]=${fromTs}&filter[created_at][to]=${toTs}&filter[entity]=lead`
       
-      const data = await amoClient.request<{ _embedded?: { events?: AmoEvent[] }; _links?: { next?: any } }>(endpoint)
+      const data = await amoClient.request<{ _embedded?: { events?: AmoEvent[] }; _links?: { next?: unknown } }>(endpoint)
 
       if (!data || !data._embedded || !data._embedded.events) {
         console.log(`[AmoEventsEngine] Страница ${page}: событий не найдено или конец ленты.`)

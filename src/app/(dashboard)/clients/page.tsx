@@ -1,6 +1,6 @@
 import prisma from '@/lib/prisma'
 import ClientTable from './ClientTable'
-import { Users2, MapPin } from 'lucide-react'
+import { MapPin, ShoppingBag, Users2 } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,16 +20,15 @@ export default async function ClientsPage() {
         orderBy: {
           createdAt: 'desc',
         },
-        include: {
-          items: {
-            include: {
-              variant: {
-                include: {
-                  product: true,
-                },
-              },
-            },
-          },
+        select: {
+          id: true,
+          number: true,
+          status: true,
+          totalPrice: true,
+          discount: true,
+          deliveryPrice: true,
+          assemblyPrice: true,
+          createdAt: true,
         },
       },
     },
@@ -40,44 +39,51 @@ export default async function ClientsPage() {
 
   const totalCount = clients.length
   const uniqueCities = new Set(clients.map(c => c.region || c.city).filter(Boolean)).size
+  const totalOrders = clients.reduce((total, client) => total + client.orders.length, 0)
 
   return (
-    <div className="space-y-6">
-      {/* Шапка */}
+    <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight text-[var(--text-primary)] flex items-center gap-2">
-          <Users2 className="h-5 w-5 text-[var(--accent-primary)]" />
+        <h1 className="text-2xl font-semibold tracking-[-0.035em] text-[var(--text-primary)]">
           База клиентов
         </h1>
-        <p className="text-xs font-normal text-[var(--text-secondary)] mt-1">
+        <p className="mt-1 text-xs font-normal text-[var(--text-secondary)]">
           Управление базой клиентов, контактными данными, источниками рекламы и историей заказов
         </p>
       </div>
 
-      {/* Статистика */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="erp-card p-4 flex items-center justify-between">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="erp-card flex min-h-[94px] items-center justify-between px-5 py-4">
           <div>
-            <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">Всего клиентов</p>
-            <h3 className="text-xl font-semibold text-[var(--text-primary)] mt-0.5">{totalCount}</h3>
+            <p className="text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--text-tertiary)]">Всего клиентов</p>
+            <p className="mt-2 text-[22px] font-medium leading-none tracking-[-0.035em] text-[var(--text-primary)]">{totalCount}</p>
           </div>
-          <div className="h-9 w-9 rounded-md bg-[var(--accent-soft)] text-[var(--accent-primary)] flex items-center justify-center font-medium">
-            <Users2 className="h-4.5 w-4.5" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+            <Users2 className="h-[18px] w-[18px]" strokeWidth={1.8} />
           </div>
         </div>
 
-        <div className="erp-card p-4 flex items-center justify-between">
+        <div className="erp-card flex min-h-[94px] items-center justify-between px-5 py-4">
           <div>
-            <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">География (регионы / города)</p>
-            <h3 className="text-xl font-semibold text-[var(--text-primary)] mt-0.5">{uniqueCities}</h3>
+            <p className="text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--text-tertiary)]">Регионы и города</p>
+            <p className="mt-2 text-[22px] font-medium leading-none tracking-[-0.035em] text-[var(--text-primary)]">{uniqueCities}</p>
           </div>
-          <div className="h-9 w-9 rounded-md bg-[var(--accent-soft)] text-[var(--accent-primary)] flex items-center justify-center font-medium">
-            <MapPin className="h-4.5 w-4.5" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+            <MapPin className="h-[18px] w-[18px]" strokeWidth={1.8} />
+          </div>
+        </div>
+
+        <div className="erp-card flex min-h-[94px] items-center justify-between px-5 py-4">
+          <div>
+            <p className="text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--text-tertiary)]">Заказов клиентов</p>
+            <p className="mt-2 text-[22px] font-medium leading-none tracking-[-0.035em] text-[var(--text-primary)]">{totalOrders}</p>
+          </div>
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+            <ShoppingBag className="h-[18px] w-[18px]" strokeWidth={1.8} />
           </div>
         </div>
       </div>
 
-      {/* Таблица и управление */}
       <ClientTable initialClients={clients} />
     </div>
   )

@@ -3,19 +3,23 @@
 import { useState, useMemo, useEffect } from 'react'
 import { getPayrollDataAction } from './actions'
 import { generatePayrollPeriods } from '@/utils/payroll'
-import { 
-  Calendar, 
-  DollarSign, 
-  TrendingUp, 
-  MessageSquare,
+import {
+  AlertCircle,
+  Award,
+  CalendarDays,
   ChevronDown,
   ChevronUp,
-  User,
-  ShoppingBag,
-  Award,
   ExternalLink,
-  Printer,
   FileText,
+  MessageSquare,
+  PackageCheck,
+  Printer,
+  RefreshCw,
+  Search,
+  ShoppingBag,
+  ShoppingCart,
+  UserRound,
+  WalletCards,
   X
 } from 'lucide-react'
 
@@ -64,6 +68,7 @@ interface ManagerReport {
   }
 }
 
+type PayoutFilter = 'all' | 'with_payout' | 'without_payout'
 
 export default function PayrollClient() {
   const periods = useMemo(() => generatePayrollPeriods(), [])
@@ -73,6 +78,9 @@ export default function PayrollClient() {
   const [expandedManagerId, setExpandedManagerId] = useState<string | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [statementReport, setStatementReport] = useState<ManagerReport | null>(null)
+  const [search, setSearch] = useState('')
+  const [payoutFilter, setPayoutFilter] = useState<PayoutFilter>('all')
+  const [errorMessage, setErrorMessage] = useState('')
 
   const handlePrintStatement = (report: ManagerReport) => {
     const printWindow = window.open('', '_blank', 'width=900,height=1000')
@@ -319,8 +327,9 @@ export default function PayrollClient() {
       setLoading(false)
 
       if (result.error) {
-        alert(result.error)
+        setErrorMessage(result.error)
       } else if (result.report) {
+        setErrorMessage('')
         setReports(result.report as ManagerReport[])
       }
     }
@@ -332,6 +341,17 @@ export default function PayrollClient() {
     }
   }, [selectedPeriodIdx, refreshTrigger, periods])
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && statementReport) {
+        setStatementReport(null)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [statementReport])
+
   const handleRefresh = () => {
     setRefreshTrigger(prev => prev + 1)
   }
@@ -340,154 +360,240 @@ export default function PayrollClient() {
     setExpandedManagerId(prev => prev === managerId ? null : managerId)
   }
 
-  const totalPayoutAll = reports.reduce((sum, r) => sum + r.metrics.totalPayout, 0)
-  const totalOrdersAll = reports.reduce((sum, r) => sum + r.metrics.totalOrdersCount, 0)
-  const totalFeedbacksAll = reports.reduce((sum, r) => sum + r.metrics.feedbackBonusCount, 0)
+  const totalPayoutAll = reports.reduce((sum, report) => sum + report.metrics.totalPayout, 0)
+  const totalCreatedAll = reports.reduce(
+    (sum, report) => sum + (report.metrics.totalCreatedCount ?? report.metrics.totalOrdersCount),
+    0
+  )
+  const totalDeliveredAll = reports.reduce(
+    (sum, report) => sum + report.metrics.currentDeliveredCount + report.metrics.pastDeliveredCount,
+    0
+  )
+  const totalFeedbacksAll = reports.reduce((sum, report) => sum + report.metrics.feedbackBonusCount, 0)
+  const filteredReports = useMemo(() => {
+    const query = search.trim().toLowerCase()
+
+    return reports.filter(report => {
+      const matchesSearch = !query
+        || report.manager.fullName.toLowerCase().includes(query)
+        || report.manager.email.toLowerCase().includes(query)
+      const matchesPayout = payoutFilter === 'all'
+        || (payoutFilter === 'with_payout' && report.metrics.totalPayout > 0)
+        || (payoutFilter === 'without_payout' && report.metrics.totalPayout === 0)
+
+      return matchesSearch && matchesPayout
+    })
+  }, [payoutFilter, reports, search])
 
   return (
-    <div className="space-y-6 min-w-0 max-w-full overflow-hidden">
-      {/* Выбор периода */}
-      <div className="erp-card p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center gap-2 text-xs">
-          <Calendar className="h-4 w-4 text-[var(--accent-primary)]" />
-          <span className="font-medium text-[var(--text-primary)]">Отчетный период:</span>
-          <select
-            value={selectedPeriodIdx}
-            onChange={e => {
-              setSelectedPeriodIdx(Number(e.target.value))
-              setExpandedManagerId(null)
-            }}
-            className="erp-input font-medium cursor-pointer"
-          >
-            {periods.map((p, idx) => (
-              <option key={idx} value={idx}>{p.label}</option>
-            ))}
-          </select>
-        </div>
-        <button
-          onClick={handleRefresh}
-          disabled={loading}
-          className="erp-button-primary cursor-pointer disabled:opacity-50"
-        >
-          {loading ? 'Загрузка...' : 'Обновить'}
-        </button>
-      </div>
-
-      {/* Сводные метрики */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="erp-card p-4 flex items-center justify-between">
+    <div className="min-w-0 space-y-4">
+      <section className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] p-4 shadow-xs">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">Общий фонд выплат</p>
-            <h3 className="text-xl font-semibold text-[var(--text-primary)] mt-0.5">
-              {totalPayoutAll.toLocaleString('ru-RU')} ₽
-            </h3>
+            <h2 className="whitespace-nowrap text-sm font-semibold text-[var(--text-primary)]">Расчётный период</h2>
+            <p className="mt-1 whitespace-nowrap text-[10px] text-[var(--text-tertiary)]">Параметры ведомости</p>
           </div>
-          <div className="h-9 w-9 rounded-md bg-[var(--accent-soft)] text-[var(--accent-primary)] flex items-center justify-center font-medium">
-            <DollarSign className="h-4.5 w-4.5" />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <label className="min-w-0 space-y-1.5 sm:min-w-[300px]">
+              <span className="text-[10px] font-medium text-[var(--text-secondary)]">Отчётный период</span>
+              <span className="relative block">
+                <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-tertiary)]" />
+                <select
+                  aria-label="Отчётный период"
+                  value={selectedPeriodIdx}
+                  onChange={event => {
+                    setSelectedPeriodIdx(Number(event.target.value))
+                    setExpandedManagerId(null)
+                  }}
+                  className="erp-input w-full cursor-pointer !pl-9 font-medium"
+                >
+                  {periods.map((period, index) => (
+                    <option key={index} value={index}>{period.label}</option>
+                  ))}
+                </select>
+              </span>
+            </label>
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={loading}
+              className="erp-button-primary inline-flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+              {loading ? 'Пересчитываем...' : 'Пересчитать'}
+            </button>
           </div>
         </div>
 
-        <div className="erp-card p-4 flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">Оформлено продаж</p>
-            <h3 className="text-xl font-semibold text-[var(--text-primary)] mt-0.5">
-              {totalOrdersAll} шт
-            </h3>
+        {errorMessage && (
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-[var(--danger)]/25 bg-[var(--danger-soft)] px-3 py-2.5 text-[11px] text-[var(--danger)]" role="alert">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            {errorMessage}
           </div>
-          <div className="h-9 w-9 rounded-md bg-[var(--accent-soft)] text-[var(--accent-primary)] flex items-center justify-center font-medium">
-            <TrendingUp className="h-4.5 w-4.5" />
-          </div>
-        </div>
+        )}
+      </section>
 
-        <div className="erp-card p-4 flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">Собрано отзывов</p>
-            <h3 className="text-xl font-semibold text-[var(--text-primary)] mt-0.5">
-              {totalFeedbacksAll} шт
-            </h3>
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Сводка расчёта зарплаты">
+        {[
+          {
+            label: 'Фонд выплат',
+            value: `${totalPayoutAll.toLocaleString('ru-RU')} ₽`,
+            note: 'Начислено за период',
+            icon: WalletCards,
+            iconClass: 'bg-[var(--accent-soft)] text-[var(--accent-primary)]',
+          },
+          {
+            label: 'Оформлено',
+            value: totalCreatedAll.toLocaleString('ru-RU'),
+            note: 'Подзаказов создано',
+            icon: ShoppingCart,
+            iconClass: 'bg-[var(--accent-soft)] text-[var(--accent-primary)]',
+          },
+          {
+            label: 'Доставлено',
+            value: totalDeliveredAll.toLocaleString('ru-RU'),
+            note: 'Учтено в начислениях',
+            icon: PackageCheck,
+            iconClass: 'bg-[var(--success-soft)] text-[var(--success)]',
+          },
+          {
+            label: 'Отзывы',
+            value: totalFeedbacksAll.toLocaleString('ru-RU'),
+            note: 'Премиальных отзывов',
+            icon: MessageSquare,
+            iconClass: 'bg-[var(--warning-soft)] text-[var(--warning)]',
+          },
+        ].map(metric => (
+          <div key={metric.label} className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] p-4 shadow-xs">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-tertiary)]">{metric.label}</p>
+                <p className="mt-2 whitespace-nowrap text-2xl font-semibold tracking-[-0.04em] text-[var(--text-primary)]">{metric.value}</p>
+                <p className="mt-1 text-[10px] text-[var(--text-tertiary)]">{metric.note}</p>
+              </div>
+              <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${metric.iconClass}`}>
+                <metric.icon className="h-[18px] w-[18px]" strokeWidth={1.8} />
+              </span>
+            </div>
           </div>
-          <div className="h-9 w-9 rounded-md bg-[var(--accent-soft)] text-[var(--accent-primary)] flex items-center justify-center font-medium">
-            <MessageSquare className="h-4.5 w-4.5" />
-          </div>
-        </div>
-      </div>
+        ))}
+      </section>
 
-      {/* Ведомости по менеджерам */}
-      <div className="space-y-4">
+      <section className="overflow-hidden rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] shadow-xs">
+        <header className="border-b border-[var(--border-primary)] p-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-[var(--text-primary)]">Ведомости менеджеров</h2>
+                <span className="rounded-full bg-[var(--bg-surface-secondary)] px-2 py-1 text-[9px] font-semibold text-[var(--text-secondary)]">{reports.length}</span>
+              </div>
+              <p className="mt-1 text-[10px] text-[var(--text-tertiary)]">Начисления, ставки и детализация по сотрудникам</p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="relative sm:w-[220px]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-tertiary)]" />
+                <input
+                  type="search"
+                  aria-label="Поиск менеджера"
+                  placeholder="Имя или почта"
+                  value={search}
+                  onChange={event => setSearch(event.target.value)}
+                  className="erp-input w-full !pl-9 font-normal"
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-1 rounded-lg bg-[var(--bg-surface-secondary)] p-1" aria-label="Фильтр начислений">
+                {([
+                  ['all', 'Все'],
+                  ['with_payout', 'С выплатой'],
+                  ['without_payout', 'Без выплаты'],
+                ] as const).map(([value, label]) => (
+                  <button
+                    type="button"
+                    key={value}
+                    onClick={() => setPayoutFilter(value)}
+                    className={`whitespace-nowrap rounded-md px-3 py-2 text-[10px] font-medium transition-colors ${
+                      payoutFilter === value
+                        ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-xs'
+                        : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div className="divide-y divide-[var(--border-primary)]">
         {loading ? (
-          <div className="erp-card p-12 text-center text-[var(--text-tertiary)] text-xs font-normal">
-            Расчет ведомостей...
+          <div className="px-5 py-16 text-center">
+            <RefreshCw className="mx-auto h-6 w-6 animate-spin text-[var(--accent-primary)]" />
+            <p className="mt-3 text-xs font-medium text-[var(--text-secondary)]">Рассчитываем ведомости</p>
           </div>
-        ) : reports.length === 0 ? (
-          <div className="erp-card p-12 text-center text-[var(--text-tertiary)] text-xs font-normal">
-            Нет данных по зарплате менеджеров за выбранный период
+        ) : filteredReports.length === 0 ? (
+          <div className="px-5 py-16 text-center">
+            <UserRound className="mx-auto h-7 w-7 text-[var(--text-tertiary)]" strokeWidth={1.5} />
+            <p className="mt-3 text-xs font-medium text-[var(--text-secondary)]">Ведомости не найдены</p>
+            <p className="mt-1 text-[10px] text-[var(--text-tertiary)]">Измените период, поиск или фильтр</p>
           </div>
         ) : (
-          reports.map(report => {
+          filteredReports.map(report => {
             const isExpanded = expandedManagerId === report.manager.id
             return (
-              <div 
+              <article
                 key={report.manager.id} 
-                className="erp-card overflow-hidden"
+                className="min-w-0 overflow-hidden"
               >
-                {/* Карточка-заголовок */}
-                <div 
-                  onClick={() => toggleExpand(report.manager.id)}
-                  className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer hover:bg-[var(--bg-table-row-hover)] transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-full bg-[var(--accent-soft)] text-[var(--accent-primary)] flex items-center justify-center font-semibold text-xs">
-                      <User className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-semibold text-[var(--text-primary)]">{report.manager.fullName}</h4>
-                      <p className="text-[10px] font-normal text-[var(--text-tertiary)] uppercase tracking-wider mt-0.5">Менеджер по продажам</p>
+                <div className="grid min-w-0 gap-4 p-4 xl:grid-cols-[minmax(170px,1.2fr)_repeat(4,minmax(82px,0.55fr))_auto] xl:items-center">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+                      <UserRound className="h-[18px] w-[18px]" strokeWidth={1.8} />
+                    </span>
+                    <div className="min-w-0">
+                      <h3 className="truncate text-xs font-semibold text-[var(--text-primary)]">{report.manager.fullName}</h3>
+                      <p className="mt-1 truncate font-mono text-[9px] text-[var(--text-tertiary)]">{report.manager.email}</p>
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-4 sm:gap-6 text-xs text-[var(--text-secondary)] font-normal">
-                    <div className="text-center sm:text-right">
-                      <span className="text-[9px] font-medium text-[var(--text-tertiary)] block uppercase tracking-wider">Всего заказов</span>
-                      <span className="text-[var(--text-primary)] font-semibold">{(report.metrics.totalCreatedCount !== undefined) ? report.metrics.totalCreatedCount : report.metrics.totalOrdersCount} шт</span>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:contents">
+                    <div className="rounded-lg bg-[var(--bg-surface-secondary)] px-3 py-2.5 xl:bg-transparent xl:p-0">
+                      <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--text-tertiary)]">Оформлено</p>
+                      <p className="mt-1 whitespace-nowrap text-xs font-semibold text-[var(--text-primary)]">{report.metrics.totalCreatedCount ?? report.metrics.totalOrdersCount} шт.</p>
                     </div>
-                    <div className="text-center sm:text-right">
-                      <span className="text-[9px] font-medium text-[var(--text-tertiary)] block uppercase tracking-wider">Доставлено</span>
-                      <span className="text-[var(--success)] font-semibold">{report.metrics.currentDeliveredCount} шт</span>
+                    <div className="rounded-lg bg-[var(--bg-surface-secondary)] px-3 py-2.5 xl:bg-transparent xl:p-0">
+                      <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--text-tertiary)]">Доставлено</p>
+                      <p className="mt-1 whitespace-nowrap text-xs font-semibold text-[var(--success)]">{report.metrics.currentDeliveredCount + report.metrics.pastDeliveredCount} шт.</p>
                     </div>
-                    <div className="text-center sm:text-right">
-                      <span className="text-[9px] font-medium text-[var(--text-tertiary)] block uppercase tracking-wider">Отменено</span>
-                      <span className="text-[var(--danger)] font-semibold">{report.metrics.cancelledCount ?? 0} шт</span>
+                    <div className="rounded-lg bg-[var(--bg-surface-secondary)] px-3 py-2.5 xl:bg-transparent xl:p-0">
+                      <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--text-tertiary)]">Ставка</p>
+                      <p className="mt-1 whitespace-nowrap text-xs font-semibold text-[var(--text-primary)]">{report.metrics.currentRate.toLocaleString('ru-RU')} ₽</p>
                     </div>
-                    <div className="text-center sm:text-right">
-                      <span className="text-[9px] font-medium text-[var(--text-tertiary)] block uppercase tracking-wider">Текущая ставка</span>
-                      <span className="text-[var(--text-primary)] font-semibold">{report.metrics.currentRate} ₽</span>
+                    <div className="rounded-lg bg-[var(--bg-surface-secondary)] px-3 py-2.5 xl:bg-transparent xl:p-0">
+                      <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--text-tertiary)]">К выплате</p>
+                      <p className="mt-1 whitespace-nowrap text-sm font-semibold text-[var(--accent-primary)]">{report.metrics.totalPayout.toLocaleString('ru-RU')} ₽</p>
                     </div>
-                    <div className="text-center sm:text-right">
-                      <span className="text-[9px] font-medium text-[var(--text-tertiary)] block uppercase tracking-wider">К выплате</span>
-                      <span className="text-[var(--accent-primary)] font-semibold text-sm">{report.metrics.totalPayout.toLocaleString('ru-RU')} ₽</span>
-                    </div>
-                    <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        onClick={() => setStatementReport(report)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-[var(--accent-primary)]/10 hover:bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] text-xs font-semibold rounded-md transition-colors cursor-pointer"
-                        title="Сформировать официальную выписку по ЗП для сотрудника"
-                      >
-                        <FileText className="h-3.5 w-3.5" />
-                        <span>Выписка</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => toggleExpand(report.manager.id)}
-                        className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] rounded"
-                      >
-                        {isExpanded ? (
-                          <ChevronUp className="h-4 w-4" />
-                        ) : (
-                          <ChevronDown className="h-4 w-4" />
-                        )}
-                      </button>
-                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 sm:flex-row xl:justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setStatementReport(report)}
+                      className="erp-button-secondary inline-flex items-center justify-center gap-1.5 whitespace-nowrap text-xs"
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                      Выписка
+                    </button>
+                    <button
+                      type="button"
+                      aria-expanded={isExpanded}
+                      aria-label={`${isExpanded ? 'Скрыть' : 'Показать'} детализацию для ${report.manager.fullName}`}
+                      onClick={() => toggleExpand(report.manager.id)}
+                      className="erp-button-primary inline-flex items-center justify-center gap-1.5 whitespace-nowrap text-xs"
+                    >
+                      {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                      {isExpanded ? 'Скрыть' : 'Детали'}
+                    </button>
                   </div>
                 </div>
 
@@ -647,30 +753,35 @@ export default function PayrollClient() {
                     </div>
                   </div>
                 )}
-              </div>
+              </article>
             )
           })
         )}
-      </div>
+        </div>
+      </section>
 
       {/* Модальное окно: Официальная расчетная ведомость / Выписка по ЗП */}
       {statementReport && (
-        <div 
+        <div
           id="payslip-modal-wrapper"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+          role="presentation"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] p-3 backdrop-blur-xs sm:p-6"
           onClick={(e) => {
             if (e.target === e.currentTarget) setStatementReport(null)
           }}
         >
-          <div 
+          <section
             id="payslip-print-document"
-            className="relative w-full max-w-3xl bg-white text-slate-900 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] print:max-h-none print:shadow-none print:w-full print:max-w-none print:rounded-none"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="payslip-dialog-title"
+            className="relative flex max-h-[calc(100vh-24px)] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-slate-900 shadow-2xl print:max-h-none print:w-full print:max-w-none print:rounded-none print:border-0 print:shadow-none"
           >
             {/* Панель управления печати (скрыта при печати) */}
-            <div className="flex h-13 items-center justify-between border-b border-slate-200 bg-slate-100 px-5 print:hidden">
-              <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-[var(--accent-primary)]" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3.5 print:hidden sm:px-5">
+              <div className="flex min-w-0 items-center gap-2">
+                <FileText className="h-4 w-4 shrink-0 text-[var(--accent-primary)]" />
+                <h3 id="payslip-dialog-title" className="truncate text-xs font-semibold text-slate-800">
                   Расчётная ведомость: {statementReport.manager.fullName}
                 </h3>
               </div>
@@ -678,15 +789,17 @@ export default function PayrollClient() {
                 <button
                   type="button"
                   onClick={() => handlePrintStatement(statementReport)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white text-xs font-semibold rounded-md transition-colors cursor-pointer shadow-xs"
+                  className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-[var(--accent-primary)] px-3 py-2 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-[var(--accent-primary-hover)]"
                 >
                   <Printer className="h-3.5 w-3.5" />
-                  <span>Распечатать / PDF</span>
+                  <span className="hidden sm:inline">Распечатать / PDF</span>
+                  <span className="sm:hidden">PDF</span>
                 </button>
                 <button
                   type="button"
+                  aria-label="Закрыть ведомость"
                   onClick={() => setStatementReport(null)}
-                  className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded transition-colors cursor-pointer"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-800"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -696,36 +809,36 @@ export default function PayrollClient() {
             {/* Контент расчётного листа (A4 стиль) */}
             <div 
               id="payslip-print-content"
-              className="p-8 space-y-6 overflow-y-auto print:overflow-visible print:p-0 text-slate-900 bg-white leading-relaxed"
+              className="space-y-5 overflow-y-auto bg-white p-4 leading-relaxed text-slate-900 print:overflow-visible print:p-0 sm:p-8"
             >
               {/* Шапка документа */}
-              <div className="flex items-start justify-between border-b border-slate-300 pb-4">
-                <div>
-                  <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-4 border-b border-slate-300 pb-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-bold text-lg text-slate-900 tracking-tight">СУЛАК CRM</span>
                     <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 font-semibold">Официальная выписка</span>
                   </div>
-                  <h2 className="text-base font-extrabold uppercase tracking-wide text-slate-900 mt-2">
+                  <h2 className="mt-2 text-sm font-extrabold uppercase tracking-wide text-slate-900 sm:text-base">
                     РАСЧЁТНАЯ ВЕДОМОСТЬ ПО НАЧИСЛЕНИЮ ЗАРПЛАТЫ
                   </h2>
                   <p className="text-xs text-slate-600 mt-0.5">
                     Отчётный период: <strong className="text-slate-900">{periods[selectedPeriodIdx]?.label}</strong>
                   </p>
                 </div>
-                <div className="text-right text-xs text-slate-500 font-mono">
+                <div className="text-left font-mono text-xs text-slate-500 sm:text-right">
                   <div>Дата формирования:</div>
                   <div className="font-bold text-slate-800">{new Date().toLocaleDateString('ru-RU')}</div>
                 </div>
               </div>
 
               {/* Реквизиты сотрудника */}
-              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200 text-xs">
+              <div className="grid gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-xs sm:grid-cols-2">
                 <div>
                   <span className="text-slate-500 block text-[10px] uppercase font-bold tracking-wider mb-0.5">Сотрудник / Менеджер</span>
                   <span className="font-bold text-sm text-slate-900">{statementReport.manager.fullName}</span>
                   <span className="block text-slate-500 font-mono text-[11px] mt-0.5">{statementReport.manager.email}</span>
                 </div>
-                <div className="text-right">
+                <div className="text-left sm:text-right">
                   <span className="text-slate-500 block text-[10px] uppercase font-bold tracking-wider mb-0.5">Расчётная ставка периода</span>
                   <span className="font-bold text-sm text-slate-900">{statementReport.metrics.currentRate} ₽ / за доставку</span>
                   <span className="block text-slate-500 text-[11px] mt-0.5">Оформил подзаказов: {statementReport.metrics.totalCreatedCount ?? statementReport.metrics.totalOrdersCount} шт</span>
@@ -735,7 +848,8 @@ export default function PayrollClient() {
               {/* Сводная таблица начислений */}
               <div className="space-y-2">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">1. Сводный расчёт выплат за период</h4>
-                <table className="w-full text-left text-xs border-collapse border border-slate-300">
+                <div className="overflow-x-auto rounded border border-slate-300">
+                <table className="min-w-[580px] w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-300 text-[10px] uppercase">
                       <th className="p-2.5 border-r border-slate-300">Категория начисления</th>
@@ -769,6 +883,7 @@ export default function PayrollClient() {
                     </tr>
                   </tbody>
                 </table>
+                </div>
               </div>
 
               {/* Детализация 1: Текущие доставки */}
@@ -829,7 +944,7 @@ export default function PayrollClient() {
                 </div>
               )}
             </div>
-          </div>
+          </section>
         </div>
       )}
     </div>

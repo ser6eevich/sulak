@@ -5,7 +5,7 @@ self.addEventListener('push', function (event) {
   let data = {}
   try {
     data = event.data.json()
-  } catch (e) {
+  } catch {
     data = { title: 'Сулак CRM', body: event.data.text() }
   }
 

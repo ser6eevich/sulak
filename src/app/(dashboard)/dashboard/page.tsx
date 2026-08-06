@@ -29,7 +29,7 @@ export default async function DashboardPage() {
   // Параллельно загружаем все данные
   const [
     ordersStats,
-    deliveredOrders,
+    deliveredRevenueRows,
     latestOrders,
     allOrdersForAnalytics,
     onlineProfiles,
@@ -42,10 +42,11 @@ export default async function DashboardPage() {
     }),
 
     // Б. Выручка — доставленные заказы
-    prisma.order.findMany({
-      where: { status: 'delivered' },
-      select: { totalPrice: true, discount: true, deliveryPrice: true, assemblyPrice: true },
-    }),
+    prisma.$queryRaw<{ revenue: bigint }[]>`
+      SELECT COALESCE(SUM(total_price - discount + delivery_price + assembly_price), 0)::bigint AS revenue
+      FROM orders
+      WHERE status = 'delivered'
+    `,
 
     // В. Последние 5 заказов
     prisma.order.findMany({
@@ -105,10 +106,7 @@ export default async function DashboardPage() {
     }),
   ])
 
-  const totalRevenue = deliveredOrders.reduce(
-    (sum, o) => sum + (o.totalPrice - o.discount + o.deliveryPrice + o.assemblyPrice),
-    0
-  )
+  const totalRevenue = Number(deliveredRevenueRows[0]?.revenue ?? 0)
 
   const stats = {
     revenue: totalRevenue / 100,

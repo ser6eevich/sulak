@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
+import Image from 'next/image'
 import { Folder, Image as ImageIcon, ChevronRight, ArrowLeft, Loader2, X, AlertCircle } from 'lucide-react'
 
 interface YandexItem {
@@ -8,7 +9,6 @@ interface YandexItem {
   type: 'dir' | 'file'
   path: string
   preview: string | null
-  file: string | null
   size: number
   mimeType: string | null
 }
@@ -20,7 +20,6 @@ interface YandexDiskPickerModalProps {
 }
 
 export function YandexDiskPickerModal({ isOpen, onClose, onSelectImage }: YandexDiskPickerModalProps) {
-  const [currentPath, setCurrentPath] = useState<string>('/')
   const [pathHistory, setPathHistory] = useState<{ name: string; path: string }[]>([
     { name: 'Корень', path: '/' }
   ])
@@ -29,15 +28,7 @@ export function YandexDiskPickerModal({ isOpen, onClose, onSelectImage }: Yandex
   const [selectingPath, setSelectingPath] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (isOpen) {
-      setCurrentPath('/')
-      setPathHistory([{ name: 'Корень', path: '/' }])
-      loadResources('/')
-    }
-  }, [isOpen])
-
-  const loadResources = async (path: string) => {
+  const loadResources = useCallback(async (path: string) => {
     setLoading(true)
     setError(null)
     try {
@@ -50,15 +41,23 @@ export function YandexDiskPickerModal({ isOpen, onClose, onSelectImage }: Yandex
       } else {
         setItems(data.items || [])
       }
-    } catch (err: any) {
-      setError(err?.message || 'Ошибка подключения к Яндекс.Диску')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Ошибка подключения к Яндекс.Диску')
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    if (!isOpen) return
+    const timeoutId = window.setTimeout(() => {
+      setPathHistory([{ name: 'Корень', path: '/' }])
+      void loadResources('/')
+    }, 0)
+    return () => window.clearTimeout(timeoutId)
+  }, [isOpen, loadResources])
 
   const handleOpenFolder = (folderName: string, folderPath: string) => {
-    setCurrentPath(folderPath)
     setPathHistory(prev => [...prev, { name: folderName, path: folderPath }])
     loadResources(folderPath)
   }
@@ -66,7 +65,6 @@ export function YandexDiskPickerModal({ isOpen, onClose, onSelectImage }: Yandex
   const handleNavigateBreadcrumb = (index: number) => {
     const target = pathHistory[index]
     if (target) {
-      setCurrentPath(target.path)
       setPathHistory(prev => prev.slice(0, index + 1))
       loadResources(target.path)
     }
@@ -86,7 +84,6 @@ export function YandexDiskPickerModal({ isOpen, onClose, onSelectImage }: Yandex
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           path: item.path,
-          fileUrl: item.file,
         }),
       })
 
@@ -98,8 +95,8 @@ export function YandexDiskPickerModal({ isOpen, onClose, onSelectImage }: Yandex
         onSelectImage(data.imageUrl)
         onClose()
       }
-    } catch (err: any) {
-      alert('Ошибка при выборе фотографии: ' + (err?.message || String(err)))
+    } catch (err: unknown) {
+      alert('Ошибка при выборе фотографии: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
       setSelectingPath(null)
     }
@@ -210,10 +207,13 @@ export function YandexDiskPickerModal({ isOpen, onClose, onSelectImage }: Yandex
                   >
                     <div className="aspect-square w-full bg-zinc-200 dark:bg-zinc-800 relative overflow-hidden flex items-center justify-center">
                       {item.preview ? (
-                        <img
+                        <Image
                           src={item.preview}
                           alt={item.name}
-                          className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                          fill
+                          sizes="(max-width: 640px) 50vw, 200px"
+                          unoptimized
+                          className="object-cover group-hover:scale-105 transition duration-300"
                         />
                       ) : (
                         <ImageIcon className="w-8 h-8 text-zinc-400" />

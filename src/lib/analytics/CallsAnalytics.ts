@@ -1,4 +1,4 @@
-import { amoClient, AmoEvent } from './AmoClient'
+import { amoClient, AmoEvent, type AmoCall } from './AmoClient'
 
 export interface CallsStats {
   incomingCalls: number
@@ -71,17 +71,17 @@ export class CallsAnalytics {
       }
 
       // Фолбэк на классический REST API звонков
-      const callMap = new Map<number, any>()
-      ;(callsCreated || []).forEach((c: any) => { if (c.id) callMap.set(c.id, c) })
-      ;(callsUpdated || []).forEach((c: any) => { if (c.id) callMap.set(c.id, c) })
+      const callMap = new Map<number, AmoCall>()
+      ;(callsCreated || []).forEach((call) => { if (call.id) callMap.set(call.id, call) })
+      ;(callsUpdated || []).forEach((call) => { if (call.id) callMap.set(call.id, call) })
       const calls = Array.from(callMap.values())
 
       let incomingCount = 0
       let missedCount = 0
-      let totalCount = calls.length
+      const totalCount = calls.length
 
       if (calls.length > 0) {
-        calls.forEach((c: any) => {
+        calls.forEach((c) => {
           const dir = String(c.direction || c.type || c.call_direction || '').toLowerCase()
           const isOutgoing = dir === 'out' || dir === 'outbound' || dir === 'outgoing' || dir === '2'
           const isIncoming = !isOutgoing || c.call_result === 'answered'

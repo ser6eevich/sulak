@@ -1,23 +1,13 @@
 'use server'
 
 import prisma from '@/lib/prisma'
-import { createClient } from '@/utils/supabase/server'
-import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import { requireRole } from '@/lib/auth/dal'
+import { decryptSecret, encryptSecret } from '@/lib/settings/secret-crypto'
 
 async function checkAdminOrOwner() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const profile = await prisma.profile.findUnique({
-    where: { id: user.id },
-  })
-
-  if (!profile || !['admin', 'owner'].includes(profile.role)) {
-    redirect('/dashboard')
-  }
-  return user.id
+  const profile = await requireRole(['admin', 'owner'])
+  return profile.id
 }
 
 export async function saveTelegramSettingsAction(
@@ -40,11 +30,6 @@ export async function saveTelegramSettingsAction(
         create: { key: 'telegram_chat_id', value: chatId.trim() },
       }),
       prisma.systemSetting.upsert({
-        where: { key: 'telegram_bot_token' },
-        update: { value: botToken.trim() },
-        create: { key: 'telegram_bot_token', value: botToken.trim() },
-      }),
-      prisma.systemSetting.upsert({
         where: { key: 'telegram_owner_tag' },
         update: { value: (ownerTag || '').trim() },
         create: { key: 'telegram_owner_tag', value: (ownerTag || '').trim() },
@@ -60,6 +45,16 @@ export async function saveTelegramSettingsAction(
         create: { key: 'telegram_site_url', value: (siteUrl || '').trim() },
       }),
     ]
+
+    if (botToken.trim()) {
+      upserts.push(
+        prisma.systemSetting.upsert({
+          where: { key: 'telegram_bot_token' },
+          update: { value: encryptSecret(botToken.trim()) },
+          create: { key: 'telegram_bot_token', value: encryptSecret(botToken.trim()) },
+        })
+      )
+    }
 
     if (notifyFlags) {
       if (notifyFlags.new_order !== undefined) {
@@ -116,7 +111,11 @@ export async function testTelegramNotificationAction(
     await checkAdminOrOwner()
 
     const cleanChatId = chatId.trim()
-    const cleanToken = botToken.trim()
+    let cleanToken = botToken.trim()
+    if (!cleanToken) {
+      const existing = await prisma.systemSetting.findUnique({ where: { key: 'telegram_bot_token' } })
+      cleanToken = existing?.value ? decryptSecret(existing.value) : process.env.TELEGRAM_BOT_TOKEN || ''
+    }
 
     if (!cleanChatId || !cleanToken) {
       return { error: 'Заполните Chat ID и Bot Token' }
@@ -155,7 +154,7 @@ export async function saveAvitoSettingsAction(
   try {
     await checkAdminOrOwner()
 
-    const accountUpserts: any[] = []
+    const accountUpserts: ReturnType<typeof prisma.systemSetting.upsert>[] = []
 
     accounts.forEach((acc, idx) => {
       const num = idx + 1
@@ -163,7 +162,7 @@ export async function saveAvitoSettingsAction(
       const clientId = acc.clientId.trim()
       const clientSecret = acc.clientSecret.trim()
 
-      if (name && clientId && clientSecret) {
+      if (name && clientId) {
         accountUpserts.push(
           prisma.systemSetting.upsert({
             where: { key: `avito_account_${num}_name` },
@@ -178,13 +177,15 @@ export async function saveAvitoSettingsAction(
             create: { key: `avito_account_${num}_client_id`, value: clientId },
           })
         )
-        accountUpserts.push(
-          prisma.systemSetting.upsert({
-            where: { key: `avito_account_${num}_client_secret` },
-            update: { value: clientSecret },
-            create: { key: `avito_account_${num}_client_secret`, value: clientSecret },
-          })
-        )
+        if (clientSecret) {
+          accountUpserts.push(
+            prisma.systemSetting.upsert({
+              where: { key: `avito_account_${num}_client_secret` },
+              update: { value: encryptSecret(clientSecret) },
+              create: { key: `avito_account_${num}_client_secret`, value: encryptSecret(clientSecret) },
+            })
+          )
+        }
       }
     })
 
@@ -259,7 +260,12 @@ export async function sendLatestReviewPerAccountAction(
             `──────────────\n` +
             `#отзыв_авито`
 
-          const payload: any = {
+          const payload: {
+            chat_id: string
+            text: string
+            parse_mode: string
+            reply_markup?: { inline_keyboard: { text: string; url: string }[][] }
+          } = {
             chat_id: chatId,
             text: textMessage,
             parse_mode: 'HTML',
@@ -286,8 +292,8 @@ export async function sendLatestReviewPerAccountAction(
         } else {
           errors.push(`[${acc.name}] Отзывов на аккаунте пока нет.`)
         }
-      } catch (accErr: any) {
-        const errMsg = accErr?.message || String(accErr)
+      } catch (accErr: unknown) {
+        const errMsg = accErr instanceof Error ? accErr.message : String(accErr)
         console.error(`Ошибка отправки отзыва аккаунта ${acc.name}:`, accErr)
         errors.push(`[${acc.name}]: ${errMsg}`)
       }
@@ -316,16 +322,17 @@ export async function saveYandexDiskSettingsAction(
       create: { key: 'yandex_disk_public_url', value: publicUrl.trim() },
     })
 
-    await prisma.systemSetting.upsert({
-      where: { key: 'yandex_disk_token' },
-      update: { value: (token || '').trim() },
-      create: { key: 'yandex_disk_token', value: (token || '').trim() },
-    })
+    if (token?.trim()) {
+      await prisma.systemSetting.upsert({
+        where: { key: 'yandex_disk_token' },
+        update: { value: encryptSecret(token.trim()) },
+        create: { key: 'yandex_disk_token', value: encryptSecret(token.trim()) },
+      })
+    }
 
     revalidatePath('/settings')
     return { success: true }
-  } catch (error: any) {
-    return { error: error?.message || 'Ошибка сохранения настроек Яндекс.Диска' }
+  } catch (error: unknown) {
+    return { error: error instanceof Error ? error.message : 'Ошибка сохранения настроек Яндекс.Диска' }
   }
 }
-

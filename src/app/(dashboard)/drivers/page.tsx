@@ -2,7 +2,6 @@ import prisma from '@/lib/prisma'
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import DriversDashboardClient from './DriversDashboardClient'
-import { Truck } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,15 +67,14 @@ export default async function DriversPage() {
   }))
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-[var(--text-primary)] flex items-center gap-2">
-            <Truck className="h-5 w-5 text-[var(--accent-primary)]" />
-            Экипажи водителей и рейсы
+          <h1 className="text-xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+            Экипажи водителей
           </h1>
-          <p className="text-xs font-normal text-[var(--text-secondary)] mt-1">
-            Просмотр рейсов, направлений маршрутов и оперативные отметки о вручении заказов
+          <p className="mt-1 text-xs font-normal text-[var(--text-secondary)]">
+            Состав экипажей, текущая нагрузка и история доставки заказов
           </p>
         </div>
       </div>

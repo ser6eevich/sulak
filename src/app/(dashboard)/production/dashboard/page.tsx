@@ -2,7 +2,6 @@ import prisma from '@/lib/prisma'
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import ProductionDashboardClient from './ProductionDashboardClient'
-import { Hammer } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
 
@@ -52,17 +51,14 @@ export default async function ProductionDashboard() {
   })
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-800 flex items-center gap-2">
-            <Hammer className="h-6 w-6 text-brand" />
-            Товары в производстве
-          </h1>
-          <p className="text-[11px] font-medium text-slate-400 mt-1.5">
-            Информационный монитор текущих изделий, находящихся в процессе изготовления
-          </p>
-        </div>
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-[-0.035em] text-[var(--text-primary)]">
+          Цех производства
+        </h1>
+        <p className="mt-1 text-xs font-normal text-[var(--text-secondary)]">
+          Очередь заказов и изделий, которые сейчас находятся в процессе изготовления
+        </p>
       </div>
 
       <ProductionDashboardClient initialOrders={orders} />

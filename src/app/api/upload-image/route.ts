@@ -55,9 +55,9 @@ export async function POST(request: NextRequest) {
     const imageUrl = await uploadFileToStorage(buffer, uniqueFileName, file.type)
 
     return NextResponse.json({ imageUrl })
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json(
-      { error: err.message || 'Ошибка сервера при загрузке изображения' },
+      { error: err instanceof Error ? err.message : 'Ошибка сервера при загрузке изображения' },
       { status: 500 }
     )
   }

@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
+import Link from 'next/link'
 import { 
   TrendingUp, 
   ShoppingBag, 
@@ -8,16 +9,13 @@ import {
   XCircle, 
   Clock,
   MapPin,
-  Building2,
   ChevronDown,
   ChevronUp,
-  Circle,
-  BarChart2,
-  Hash,
-  Package,
   FileSpreadsheet,
   ExternalLink,
   Loader2,
+  AlertCircle,
+  ArrowRight,
 } from 'lucide-react'
 import { isMoscowOrMoAddress } from '@/utils/address'
 import { getRoleLabel } from '@/utils/roles'
@@ -47,6 +45,7 @@ interface AnalyticsOrder {
   assemblyPrice: number
   deliveryAddress: string | null
   client?: {
+    fullName?: string | null
     region?: string | null
     city?: string | null
     address?: string | null
@@ -93,7 +92,7 @@ interface DashboardClientProps {
     cancelled: number
     active: number
   }
-  latestOrders: any[]
+  latestOrders: AnalyticsOrder[]
   allOrders?: AnalyticsOrder[]
   onlineUsers?: OnlineUser[]
   auditLogs?: AuditLogEntry[]
@@ -110,7 +109,7 @@ const DATE_MODES: { key: DateMode; label: string }[] = [
 ]
 
 // Человекочитаемое название действия из audit-лога
-function formatAction(action: string, entityType: string): string {
+function formatAction(action: string): string {
   const map: Record<string, string> = {
     create_order: 'Создал заказ',
     update_order: 'Обновил заказ',
@@ -272,475 +271,296 @@ export default function DashboardClient({
     return arr
   }, [geo.mskList, mskTopSort])
 
-  const mskTopMax = mskProductStats[0]
-    ? mskTopSort === 'orders'
-      ? mskProductStats[0].orderCount
-      : mskProductStats[0].totalUnits
-    : 1
-
   return (
-    <div className="space-y-5">
-
-      {/* ── 1. Сводные показатели ── */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <div className="mx-auto w-full max-w-[1600px] space-y-4">
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {[
-          { label: 'Выручка (доставленные)', value: `${stats.revenue.toLocaleString('ru-RU')} ₽`, icon: <TrendingUp className="h-4 w-4" /> },
-          { label: 'Всего заказов',          value: stats.total,     icon: <ShoppingBag className="h-4 w-4" /> },
-          { label: 'Доставлено',             value: stats.delivered, icon: <CheckCircle2 className="h-4 w-4" /> },
-          { label: 'Активных',               value: stats.active,    icon: <Clock className="h-4 w-4" /> },
-          { label: 'Отменено',               value: stats.cancelled, icon: <XCircle className="h-4 w-4" /> },
-        ].map(({ label, value, icon }) => (
-          <div key={label} className="erp-card p-4 flex items-center justify-between gap-3">
+          { label: 'Выручка (доставленные)', value: `${stats.revenue.toLocaleString('ru-RU')} ₽`, icon: TrendingUp, tone: 'text-[var(--accent-primary)] bg-[var(--accent-soft)]' },
+          { label: 'Всего заказов', value: stats.total, icon: ShoppingBag, tone: 'text-[var(--accent-primary)] bg-[var(--accent-soft)]' },
+          { label: 'Доставлено', value: stats.delivered, icon: CheckCircle2, tone: 'text-[var(--success)] bg-[var(--success-soft)]' },
+          { label: 'Активных', value: stats.active, icon: Clock, tone: 'text-[var(--accent-primary)] bg-[var(--accent-soft)]' },
+          { label: 'Отменено', value: stats.cancelled, icon: XCircle, tone: 'text-[var(--danger)] bg-[var(--danger-soft)]' },
+        ].map(({ label, value, icon: Icon, tone }) => (
+          <article key={label} className="erp-card flex min-h-[94px] items-center justify-between gap-4 p-5">
             <div className="min-w-0">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)] truncate">{label}</p>
-              <p className="text-lg font-semibold text-[var(--text-primary)] mt-0.5 truncate">{value}</p>
+              <p className="line-clamp-2 text-[9px] font-medium uppercase leading-[1.35] tracking-[0.08em] text-[var(--text-tertiary)]">{label}</p>
+              <p className="mt-2 truncate text-[22px] font-semibold tracking-[-0.035em] text-[var(--text-primary)]">{value}</p>
             </div>
-            <div className="shrink-0 p-2 rounded-md bg-[var(--bg-surface-secondary)] text-[var(--text-tertiary)]">
-              {icon}
+            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tone}`}>
+              <Icon className="h-[18px] w-[18px]" />
             </div>
-          </div>
+          </article>
         ))}
-      </div>
+      </section>
 
-      {/* ── 2. Онлайн-участники + История действий ── */}
-      <div className="grid gap-5 lg:grid-cols-2">
-
-        {/* Онлайн-участники */}
-        <div className="erp-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-[var(--border-primary)] bg-[var(--bg-table-header)] flex items-center gap-2">
-            <Circle className="h-2 w-2 fill-[var(--success)] text-[var(--success)] animate-pulse" />
-            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
-              Сейчас онлайн
-            </h3>
-            <span className="ml-auto text-[10px] font-medium text-[var(--text-tertiary)] bg-[var(--bg-surface-secondary)] px-1.5 py-0.5 rounded">
-              {onlineUsers.length}
-            </span>
-          </div>
-
-          {onlineUsers.length === 0 ? (
-            <div className="px-4 py-8 text-center text-xs text-[var(--text-tertiary)]">
-              Никого нет онлайн
-            </div>
-          ) : (
-            <div className="divide-y divide-[var(--border-primary)] max-h-72 overflow-y-auto">
-              {onlineUsers.map(u => (
-                <div key={u.id} className="px-4 py-2.5 flex items-center gap-3">
-                  <div className="relative shrink-0">
-                    <div className="h-7 w-7 rounded-full bg-[var(--accent-soft)] text-[var(--accent-text)] text-[11px] font-semibold flex items-center justify-center">
-                      {u.fullName.slice(0, 1).toUpperCase()}
-                    </div>
-                    <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-[var(--success)] border border-[var(--bg-surface)]" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium text-[var(--text-primary)] truncate">{u.fullName}</p>
-                    <p className="text-[10px] text-[var(--text-tertiary)]">{getRoleLabel(u.role)}</p>
-                  </div>
-                  <div className="text-[10px] text-[var(--text-tertiary)] shrink-0 font-mono">
-                    {u.lastSeenAt ? timeAgo(u.lastSeenAt) : ''}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* История действий */}
-        <div className="erp-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-[var(--border-primary)] bg-[var(--bg-table-header)]">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
-              История действий
-            </h3>
-          </div>
-
-          {auditLogs.length === 0 ? (
-            <div className="px-4 py-8 text-center text-xs text-[var(--text-tertiary)]">
-              Действий пока нет
-            </div>
-          ) : (
-            <div className="divide-y divide-[var(--border-primary)] max-h-72 overflow-y-auto">
-              {auditLogs.map(log => (
-                <div key={log.id} className="px-4 py-2.5 flex items-start gap-3">
-                  <div className="shrink-0 h-5 w-5 rounded-full bg-[var(--bg-surface-secondary)] text-[var(--text-tertiary)] text-[10px] font-semibold flex items-center justify-center mt-0.5">
-                    {log.user?.fullName?.slice(0, 1).toUpperCase() || '?'}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs text-[var(--text-primary)] leading-snug">
-                      <span className="font-medium">{log.user?.fullName || 'Система'}</span>
-                      {' '}
-                      <span className="text-[var(--text-secondary)]">{formatAction(log.action, log.entityType)}</span>
-                    </p>
-                    {log.comment && (
-                      <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 truncate">{log.comment}</p>
-                    )}
-                  </div>
-                  <div className="text-[10px] text-[var(--text-tertiary)] shrink-0 font-mono whitespace-nowrap">
-                    {timeAgo(log.createdAt)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── 3. Гео-аналитика: Москва и МО ── */}
-      <div className="erp-card overflow-hidden">
-        {/* Заголовок + переключатель периода */}
-        <div className="p-4 border-b border-[var(--border-primary)] bg-[var(--bg-table-header)] flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="shrink-0 p-1.5 rounded bg-[var(--bg-surface-active)] text-[var(--text-secondary)]">
-              <Building2 className="h-4 w-4" />
-            </div>
+      <section className="grid items-start gap-4 xl:grid-cols-12">
+        <article className="erp-card overflow-hidden xl:col-span-5">
+          <header className="space-y-4 border-b border-[var(--border-secondary)] px-5 py-5">
             <div>
-              <p className="text-xs font-semibold text-[var(--text-primary)]">Москва и Московская область</p>
-              <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">Автоматическое распределение по адресам</p>
+              <h2 className="!text-[16px] !leading-5 font-semibold tracking-[-0.02em] text-[var(--text-primary)]">Региональное распределение</h2>
+              <p className="mt-1 text-[11px] text-[var(--text-tertiary)]">Автоматическое распределение по адресам</p>
             </div>
-          </div>
+            <div className="flex flex-wrap gap-1.5">
+              {DATE_MODES.map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setDateMode(key)}
+                  aria-pressed={dateMode === key}
+                  className={`rounded-lg border px-3 py-2 text-[11px] font-medium whitespace-nowrap ${
+                    dateMode === key
+                      ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)] text-white'
+                      : 'border-[var(--border-primary)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </header>
 
-          <div className="flex items-center self-start sm:self-center gap-px bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded-md p-0.5">
-            {DATE_MODES.map(({ key, label }) => (
-              <button
-                key={key}
-                onClick={() => setDateMode(key)}
-                className={`px-2.5 py-1 text-[11px] font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
-                  dateMode === key
-                    ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-xs'
-                    : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
+          {(dateMode === 'single' || dateMode === 'range') && (
+            <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border-secondary)] bg-[var(--bg-table-header)] px-5 py-3 text-xs">
+              {dateMode === 'single' ? (
+                <input type="date" value={singleDate} onChange={event => setSingleDate(event.target.value)} className="erp-input w-40 py-2 text-xs" aria-label="Дата" />
+              ) : (
+                <>
+                  <input type="date" value={fromDate} onChange={event => setFromDate(event.target.value)} className="erp-input w-40 py-2 text-xs" aria-label="Дата начала" />
+                  <span className="text-[var(--text-tertiary)]">—</span>
+                  <input type="date" value={toDate} onChange={event => setToDate(event.target.value)} className="erp-input w-40 py-2 text-xs" aria-label="Дата окончания" />
+                </>
+              )}
+            </div>
+          )}
 
-        {/* Контролы дат */}
-        {(dateMode === 'single' || dateMode === 'range') && (
-          <div className="px-4 py-3 bg-[var(--bg-surface-secondary)] border-b border-[var(--border-primary)] flex flex-wrap items-center gap-3 text-xs">
-            {dateMode === 'single' && (
-              <>
-                <span className="text-[var(--text-tertiary)]">Дата:</span>
-                <input type="date" value={singleDate} onChange={e => setSingleDate(e.target.value)} className="erp-input py-1 px-2 text-xs w-40" />
-              </>
-            )}
-            {dateMode === 'range' && (
-              <>
-                <span className="text-[var(--text-tertiary)]">С:</span>
-                <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="erp-input py-1 px-2 text-xs w-40" />
-                <span className="text-[var(--text-tertiary)]">По:</span>
-                <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="erp-input py-1 px-2 text-xs w-40" />
-              </>
-            )}
-          </div>
-        )}
-
-        <div className="p-5">
-          <div className="grid gap-4 sm:grid-cols-2">
-            {/* МСК + МО */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-[var(--text-primary)]">Москва и МО</span>
-                <span className="text-[11px] font-mono text-[var(--text-tertiary)]">{geo.mskPct}%</span>
-              </div>
-              <div className="flex items-end gap-4">
-                <div>
-                  <span className="text-2xl font-bold text-[var(--text-primary)]">{geo.mskCount}</span>
-                  <span className="text-xs text-[var(--text-tertiary)] ml-1">заказов</span>
-                </div>
-                <div className="text-xs font-medium text-[var(--text-secondary)] pb-0.5">
-                  {geo.mskRev.toLocaleString('ru-RU')} ₽
-                </div>
-              </div>
-              <div className="h-1.5 w-full rounded-full bg-[var(--bg-surface-secondary)] overflow-hidden">
-                <div className="h-full rounded-full bg-[var(--accent-primary)] transition-all duration-500" style={{ width: `${geo.mskPct}%` }} />
-              </div>
+          <div className="p-5">
+            <div className="mb-6 flex h-3 overflow-hidden rounded-full bg-[var(--bg-surface-secondary)]" aria-label={`Москва и МО ${geo.mskPct}%, регионы ${geo.regPct}%`}>
+              <div className="h-full bg-[var(--accent-primary)] transition-[width] duration-200" style={{ width: `${geo.mskPct}%` }} />
+              <div className="h-full bg-[var(--data-teal)] transition-[width] duration-200" style={{ width: `${geo.regPct}%` }} />
             </div>
 
-            {/* Регионы */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-[var(--text-primary)]">Регионы РФ</span>
-                <span className="text-[11px] font-mono text-[var(--text-tertiary)]">{geo.regPct}%</span>
-              </div>
-              <div className="flex items-end gap-4">
-                <div>
-                  <span className="text-2xl font-bold text-[var(--text-primary)]">{geo.regCount}</span>
-                  <span className="text-xs text-[var(--text-tertiary)] ml-1">заказов</span>
+            <div className="divide-y divide-[var(--border-secondary)]">
+              <div className="grid grid-cols-[1fr_auto] gap-5 py-4 first:pt-0">
+                <div className="flex items-start gap-3">
+                  <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-[var(--accent-primary)]" />
+                  <div>
+                    <p className="text-sm font-medium text-[var(--text-primary)]">Москва и МО</p>
+                    <p className="mt-1 text-[11px] text-[var(--text-tertiary)]">{geo.mskCount} заказов</p>
+                  </div>
                 </div>
-                <div className="text-xs font-medium text-[var(--text-secondary)] pb-0.5">
-                  {geo.regRev.toLocaleString('ru-RU')} ₽
+                <div className="text-right">
+                  <p className="text-2xl font-semibold tracking-[-0.04em] text-[var(--accent-primary)]">{geo.mskPct}%</p>
+                  <p className="mt-1 text-xs font-medium text-[var(--text-primary)]">{geo.mskRev.toLocaleString('ru-RU')} ₽</p>
                 </div>
               </div>
-              <div className="h-1.5 w-full rounded-full bg-[var(--bg-surface-secondary)] overflow-hidden">
-                <div className="h-full rounded-full bg-[var(--border-strong)] transition-all duration-500" style={{ width: `${geo.regPct}%` }} />
+              <div className="grid grid-cols-[1fr_auto] gap-5 py-4">
+                <div className="flex items-start gap-3">
+                  <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-[var(--data-teal)]" />
+                  <div>
+                    <p className="text-sm font-medium text-[var(--text-primary)]">Регионы РФ</p>
+                    <p className="mt-1 text-[11px] text-[var(--text-tertiary)]">{geo.regCount} заказов</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-semibold tracking-[-0.04em] text-[var(--data-teal)]">{geo.regPct}%</p>
+                  <p className="mt-1 text-xs font-medium text-[var(--text-primary)]">{geo.regRev.toLocaleString('ru-RU')} ₽</p>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Итого + список */}
-          <div className="mt-5 pt-4 border-t border-[var(--border-primary)] flex items-center justify-between">
-            <span className="text-xs text-[var(--text-tertiary)]">
-              Итого за период: <strong className="text-[var(--text-secondary)] font-semibold">{geo.total} заказов</strong>
-            </span>
-            {geo.mskCount > 0 && (
-              <button
-                onClick={() => setShowOrderList(v => !v)}
-                className="flex items-center gap-1 text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
-              >
-                {showOrderList ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                {showOrderList ? 'Свернуть' : `Список МСК/МО (${geo.mskCount})`}
-              </button>
-            )}
-          </div>
+            <div className="mt-3 flex items-center justify-between border-t border-[var(--border-secondary)] pt-4">
+              <span className="text-[11px] text-[var(--text-tertiary)]">Итого: <strong className="font-medium text-[var(--text-primary)]">{geo.total} заказов</strong></span>
+              {geo.mskCount > 0 && (
+                <button onClick={() => setShowOrderList(value => !value)} className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--accent-primary)] hover:text-[var(--accent-primary-hover)]">
+                  {showOrderList ? 'Свернуть список' : `Список МСК/МО (${geo.mskCount})`}
+                  {showOrderList ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                </button>
+              )}
+            </div>
 
-          {showOrderList && geo.mskList.length > 0 && (
-            <div className="mt-3 border border-[var(--border-primary)] rounded-md overflow-hidden">
-              <div className="max-h-56 overflow-y-auto divide-y divide-[var(--border-primary)]">
-                {geo.mskList.map(o => {
-                  const num = o.number ? `№${o.number}` : `#${o.id.slice(-5)}`
-                  const sumRub = (o.totalPrice - o.discount + o.deliveryPrice + o.assemblyPrice) / 100
-                  const addr = o.deliveryAddress || o.client?.address || o.client?.city || ''
-                  return (
-                    <div key={o.id} className="px-3 py-2 flex items-center justify-between text-xs bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)] transition-colors">
-                      <div className="space-y-0.5 min-w-0">
-                        <span className="font-mono font-semibold text-[var(--text-primary)]">{num}</span>
-                        {addr && (
-                          <div className="flex items-center gap-1 text-[11px] text-[var(--text-tertiary)] truncate">
-                            <MapPin className="h-3 w-3 shrink-0" />
-                            <span className="truncate">{addr}</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="shrink-0 text-right pl-3">
-                        <div className="font-semibold text-[var(--text-primary)]">{sumRub.toLocaleString('ru-RU')} ₽</div>
-                        <div className="text-[10px] text-[var(--text-tertiary)] font-mono">
-                          {new Date(o.createdAt).toLocaleDateString('ru-RU')}
+            {showOrderList && geo.mskList.length > 0 && (
+              <div className="mt-4 max-h-52 overflow-y-auto rounded-xl border border-[var(--border-primary)] bg-[var(--bg-table-header)]">
+                <div className="divide-y divide-[var(--border-secondary)]">
+                  {geo.mskList.map(order => {
+                    const number = order.number ? `№${order.number}` : `#${order.id.slice(-5)}`
+                    const total = (order.totalPrice - order.discount + order.deliveryPrice + order.assemblyPrice) / 100
+                    const address = order.deliveryAddress || order.client?.address || order.client?.city || ''
+                    return (
+                      <div key={order.id} className="flex items-center justify-between gap-3 px-3.5 py-3 text-xs hover:bg-[var(--bg-surface-hover)]">
+                        <div className="min-w-0">
+                          <p className="font-medium text-[var(--text-primary)]">{number}</p>
+                          {address && <p className="mt-0.5 flex items-center gap-1 truncate text-[10px] text-[var(--text-tertiary)]"><MapPin className="h-3 w-3 shrink-0" />{address}</p>}
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="font-medium text-[var(--text-primary)]">{total.toLocaleString('ru-RU')} ₽</p>
+                          <p className="mt-0.5 text-[10px] text-[var(--text-tertiary)]">{new Date(order.createdAt).toLocaleDateString('ru-RU')}</p>
                         </div>
                       </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
-      </div>
+            )}
+          </div>
+        </article>
 
-      {/* ── 4. ТОП позиций по МСК/МО ── */}
-      {mskProductStats.length > 0 && (
-        <div className="erp-card overflow-hidden">
-          {/* Заголовок */}
-          <div className="px-4 py-3 border-b border-[var(--border-primary)] bg-[var(--bg-table-header)] flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="shrink-0 p-1.5 rounded bg-[var(--bg-surface-active)] text-[var(--text-secondary)]">
-                <BarChart2 className="h-4 w-4" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-[var(--text-primary)]">ТОП позиций по МСК/МО</p>
-                <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
-                  {mskProductStats.length} уникальных {mskProductStats.length === 1 ? 'модель' : 'моделей'} в {geo.mskCount} {geo.mskCount === 1 ? 'заказе' : 'заказах'}
-                </p>
-              </div>
+        <article className="erp-card overflow-hidden xl:col-span-7">
+          <header className="flex flex-col gap-3 border-b border-[var(--border-secondary)] px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="shrink-0 sm:max-w-[210px]">
+              <h2 className="!text-[16px] !leading-5 font-semibold tracking-[-0.02em] text-[var(--text-primary)]">ТОП позиций по МСК/МО</h2>
+              <p className="mt-1 text-[11px] text-[var(--text-tertiary)]">{mskProductStats.length} уникальных моделей в {geo.mskCount} заказах</p>
             </div>
-
-            <div className="flex items-center gap-2 self-start sm:self-center">
-              {/* Сортировка */}
-              <div className="flex items-center gap-px bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded-md p-0.5">
+            <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
+              <div className="flex rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface-secondary)] p-0.5">
                 {([
                   { key: 'orders' as MskTopSortKey, label: 'По заказам' },
-                  { key: 'units'  as MskTopSortKey, label: 'По кол-ву' },
+                  { key: 'units' as MskTopSortKey, label: 'По кол-ву' },
                 ] as const).map(({ key, label }) => (
-                  <button
-                    key={key}
-                    onClick={() => setMskTopSort(key)}
-                    className={`px-2.5 py-1 text-[11px] font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
-                      mskTopSort === key
-                        ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-xs'
-                        : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
-                    }`}
-                  >
+                  <button key={key} onClick={() => setMskTopSort(key)} aria-pressed={mskTopSort === key} className={`rounded-md px-2.5 py-1.5 text-[10px] font-medium ${mskTopSort === key ? 'bg-[var(--text-primary)] text-[var(--text-inverse)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}>
                     {label}
                   </button>
                 ))}
               </div>
-              {/* Свернуть/развернуть */}
-              <button
-                onClick={() => setMskTopExpanded(v => !v)}
-                className="p-1.5 rounded border border-[var(--border-primary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-secondary)] transition-colors cursor-pointer"
-                title={mskTopExpanded ? 'Свернуть' : 'Развернуть'}
-              >
+              <button onClick={() => setMskTopExpanded(value => !value)} className="flex h-8 items-center gap-1 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface)] px-2.5 text-[10px] font-medium text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]">
+                {mskTopExpanded ? 'Свернуть' : 'Развернуть'}
                 {mskTopExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
               </button>
-
-              {/* Экспорт в Google Sheets */}
-              <button
-                onClick={handleExportToSheets}
-                disabled={sheetsExporting}
-                title="Экспортировать топ МСК в Google Sheets"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold rounded border border-[#1E8449]/40 bg-[#1E8449]/10 text-[#1E8449] hover:bg-[#1E8449]/20 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-              >
-                {sheetsExporting
-                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  : <FileSpreadsheet className="h-3.5 w-3.5" />}
+              <button onClick={handleExportToSheets} disabled={sheetsExporting} className="flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface)] px-2.5 text-[10px] font-medium text-[var(--text-primary)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50">
+                {sheetsExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileSpreadsheet className="h-3.5 w-3.5 text-[#16875d]" />}
                 {sheetsExporting ? 'Экспорт…' : 'Google Sheets'}
               </button>
             </div>
-          </div>
+          </header>
 
-          {/* Уведомления об экспорте в Google Sheets */}
           {sheetsError && (
-            <div className="mx-4 mt-3 flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
-              <span className="shrink-0">⚠️</span>
-              <span>{sheetsError}</span>
-              <button onClick={() => setSheetsError(null)} className="ml-auto shrink-0 text-red-400 hover:text-red-600 cursor-pointer">✕</button>
+            <div className="mx-5 mt-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+              <AlertCircle className="h-4 w-4 shrink-0" /><span>{sheetsError}</span>
+              <button onClick={() => setSheetsError(null)} className="ml-auto" aria-label="Закрыть сообщение"><XCircle className="h-4 w-4" /></button>
             </div>
           )}
           {sheetsUrl && !sheetsError && (
-            <div className="mx-4 mt-3 flex items-center gap-2 p-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-xs">
-              <span>✅ Таблица обновлена!</span>
-              <a
-                href={sheetsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ml-auto flex items-center gap-1 font-semibold underline hover:no-underline"
-              >
-                Открыть Google Sheets <ExternalLink className="h-3 w-3" />
-              </a>
-              <button onClick={() => setSheetsUrl(null)} className="shrink-0 text-green-400 hover:text-green-600 cursor-pointer">✕</button>
+            <div className="mx-5 mt-4 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-700">
+              <CheckCircle2 className="h-4 w-4 shrink-0" /><span>Таблица обновлена</span>
+              <a href={sheetsUrl} target="_blank" rel="noopener noreferrer" className="ml-auto flex items-center gap-1 font-medium">Открыть <ExternalLink className="h-3.5 w-3.5" /></a>
+              <button onClick={() => setSheetsUrl(null)} aria-label="Закрыть сообщение"><XCircle className="h-4 w-4" /></button>
             </div>
           )}
 
-          {mskTopExpanded && (
+          {mskTopExpanded ? (
             <div className="overflow-x-auto">
-              {/* Шапка таблицы */}
-              <div className="grid grid-cols-[1fr_auto_auto] sm:grid-cols-[minmax(0,1fr)_140px_80px_80px] gap-x-4 px-4 py-2 bg-[var(--bg-table-header)] border-b border-[var(--border-primary)] text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
-                <span>Модель / SKU</span>
-                <span className="hidden sm:block">Категория</span>
-                <span className="text-right">Заказов</span>
-                <span className="text-right">Единиц</span>
+              <div className="grid min-w-[620px] grid-cols-[34px_minmax(0,1fr)_132px_68px_68px] gap-x-3 border-b border-[var(--border-secondary)] bg-[var(--bg-table-header)] px-5 py-2 text-[9px] font-medium uppercase tracking-[0.08em] text-[var(--text-tertiary)]">
+                <span>#</span><span>Модель / SKU</span><span>Категория</span><span className="text-right">Заказов</span><span className="text-right">Единиц</span>
               </div>
-
-              <div className="divide-y divide-[var(--border-primary)] max-h-[460px] overflow-y-auto">
-                {mskProductStats.map((stat, idx) => {
-                  const barValue = mskTopSort === 'orders' ? stat.orderCount : stat.totalUnits
-                  const barPct = mskTopMax > 0 ? Math.round((barValue / mskTopMax) * 100) : 0
-
-                  // Формируем читаемое описание варианта
-                  const variantParts = [
-                    stat.size     && `размер: ${stat.size}`,
-                    stat.color    && `цвет: ${stat.color}`,
-                    stat.material && `материал: ${stat.material}`,
-                  ].filter(Boolean)
-
+              <div className="min-w-[620px] divide-y divide-[var(--border-secondary)]">
+                {mskProductStats.slice(0, 5).map((stat, index) => {
+                  const details = [stat.size, stat.color, stat.material].filter(Boolean).join(' · ')
                   return (
-                    <div
-                      key={stat.key}
-                      className="grid grid-cols-[1fr_auto_auto] sm:grid-cols-[minmax(0,1fr)_140px_80px_80px] gap-x-4 px-4 py-3 items-center hover:bg-[var(--bg-table-row-hover)] transition-colors"
-                    >
-                      {/* Название + SKU + прогресс-бар */}
+                    <div key={stat.key} className="grid grid-cols-[34px_minmax(0,1fr)_132px_68px_68px] items-center gap-x-3 px-5 py-2 hover:bg-[var(--bg-table-row-hover)]">
+                      <span className="text-xs font-medium text-[var(--text-tertiary)]">{index + 1}</span>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          {/* Номер в топе */}
-                          <span className={`shrink-0 h-5 w-5 rounded text-[10px] font-bold flex items-center justify-center ${
-                            idx === 0 ? 'bg-amber-400/20 text-amber-600 dark:text-amber-400' :
-                            idx === 1 ? 'bg-slate-300/30 text-slate-500 dark:text-slate-400' :
-                            idx === 2 ? 'bg-orange-300/20 text-orange-600 dark:text-orange-400' :
-                            'bg-[var(--bg-surface-secondary)] text-[var(--text-tertiary)]'
-                          }`}>
-                            {idx + 1}
-                          </span>
-                          <div className="min-w-0">
-                            <p className="text-xs font-semibold text-[var(--text-primary)] truncate">{stat.productName}</p>
-                            {variantParts.length > 0 && (
-                              <p className="text-[10px] text-[var(--text-tertiary)] truncate mt-0.5">{variantParts.join(' · ')}</p>
-                            )}
-                          </div>
-                        </div>
-                        {/* Прогресс-бар */}
-                        <div className="mt-2 h-1 w-full rounded-full bg-[var(--bg-surface-secondary)] overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-[var(--accent-primary)] transition-all duration-500"
-                            style={{ width: `${barPct}%` }}
-                          />
-                        </div>
-                        {/* SKU под прогрессом — только мобильный */}
-                        <p className="sm:hidden text-[10px] text-[var(--text-tertiary)] font-mono mt-1">{stat.sku} · {stat.categoryName}</p>
+                        <p className="truncate text-xs font-medium text-[var(--text-primary)]">{stat.productName}</p>
+                        <p className="mt-1 truncate text-[10px] text-[var(--text-tertiary)]">{details || stat.sku}</p>
                       </div>
-
-                      {/* Категория (десктоп) */}
-                      <div className="hidden sm:flex items-center gap-1.5 min-w-0">
-                        <Package className="h-3 w-3 shrink-0 text-[var(--text-tertiary)]" />
-                        <span className="text-[11px] text-[var(--text-secondary)] truncate">{stat.categoryName}</span>
-                      </div>
-
-                      {/* Заказов */}
-                      <div className="text-right">
-                        <span className={`text-sm font-bold ${
-                          mskTopSort === 'orders' ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'
-                        }`}>
-                          {stat.orderCount}
-                        </span>
-                      </div>
-
-                      {/* Единиц */}
-                      <div className="text-right">
-                        <span className={`text-sm font-bold ${
-                          mskTopSort === 'units' ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'
-                        }`}>
-                          {stat.totalUnits}
-                        </span>
-                      </div>
+                      <span className="truncate text-[11px] text-[var(--text-secondary)]">{stat.categoryName}</span>
+                      <span className="text-right text-xs font-medium text-[var(--text-primary)]">{stat.orderCount}</span>
+                      <span className="text-right text-xs font-medium text-[var(--text-primary)]">{stat.totalUnits}</span>
                     </div>
                   )
                 })}
+                {mskProductStats.length === 0 && <div className="px-5 py-16 text-center text-xs text-[var(--text-tertiary)]">Нет данных за выбранный период</div>}
               </div>
+              {mskProductStats.length > 5 && (
+                <div className="border-t border-[var(--border-secondary)] px-5 py-2.5">
+                  <button className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--accent-primary)]" onClick={() => setShowOrderList(true)}>
+                    Показать все {mskProductStats.length}<ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="px-5 py-16 text-center text-xs text-[var(--text-tertiary)]">Таблица свернута</div>
+          )}
+        </article>
+      </section>
 
-              {/* Итого строка */}
-              <div className="px-4 py-2.5 border-t border-[var(--border-primary)] bg-[var(--bg-table-header)] flex items-center justify-between text-[11px] text-[var(--text-tertiary)]">
-                <div className="flex items-center gap-1.5">
-                  <Hash className="h-3 w-3" />
-                  <span>Итого позиций: <strong className="text-[var(--text-secondary)]">{mskProductStats.length}</strong></span>
+      <section className="grid items-stretch gap-4 xl:grid-cols-12">
+        <article className="erp-card min-h-[300px] overflow-hidden xl:col-span-3">
+          <header className="flex items-center justify-between border-b border-[var(--border-secondary)] px-5 py-4">
+            <h2 className="!text-[16px] !leading-5 font-semibold tracking-[-0.02em] text-[var(--text-primary)]">Сейчас онлайн</h2>
+            <span className="rounded-full bg-[var(--bg-surface-secondary)] px-2.5 py-1 text-[10px] font-medium text-[var(--text-secondary)]">{onlineUsers.length}</span>
+          </header>
+          {onlineUsers.length === 0 ? (
+            <div className="px-5 py-14 text-center text-xs text-[var(--text-tertiary)]">Никого нет онлайн</div>
+          ) : (
+            <div className="divide-y divide-[var(--border-secondary)]">
+              {onlineUsers.slice(0, 6).map(user => (
+                <div key={user.id} className="flex items-center gap-3 px-5 py-4">
+                  <div className="relative shrink-0">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--accent-primary)] text-xs font-semibold text-white">{user.fullName.slice(0, 1).toUpperCase()}</div>
+                    <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--bg-surface)] bg-[var(--success)]" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium text-[var(--text-primary)]">{user.fullName}</p>
+                    <p className="mt-0.5 text-[10px] text-[var(--text-tertiary)]">{getRoleLabel(user.role)}</p>
+                  </div>
+                  <span className="shrink-0 text-[9px] text-[var(--text-tertiary)]">{user.lastSeenAt ? timeAgo(user.lastSeenAt) : ''}</span>
                 </div>
-                <div className="flex items-center gap-4">
-                  <span>Заказов: <strong className="text-[var(--text-secondary)]">{geo.mskCount}</strong></span>
-                  <span>Единиц: <strong className="text-[var(--text-secondary)]">{mskProductStats.reduce((s, p) => s + p.totalUnits, 0)}</strong></span>
-                </div>
-              </div>
+              ))}
             </div>
           )}
-        </div>
-      )}
+        </article>
 
-      {/* ── 5. Последние 5 заказов ── */}
-      <div className="erp-card overflow-hidden">
-        <div className="px-4 py-3 border-b border-[var(--border-primary)] bg-[var(--bg-table-header)]">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">Последние заказы</h3>
-        </div>
-        <div className="divide-y divide-[var(--border-primary)]">
-          {latestOrders.length === 0 ? (
-            <div className="px-4 py-8 text-center text-xs text-[var(--text-tertiary)]">Заказов пока нет</div>
+        <article className="erp-card min-h-[300px] overflow-hidden xl:col-span-5">
+          <header className="border-b border-[var(--border-secondary)] px-5 py-4">
+            <h2 className="!text-[16px] !leading-5 font-semibold tracking-[-0.02em] text-[var(--text-primary)]">История действий</h2>
+          </header>
+          {auditLogs.length === 0 ? (
+            <div className="px-5 py-14 text-center text-xs text-[var(--text-tertiary)]">Действий пока нет</div>
           ) : (
-            latestOrders.map(order => {
-              const price = (order.totalPrice - order.discount + order.deliveryPrice + order.assemblyPrice) / 100
-              const num = order.number ? `№${order.number}` : `#${order.id.slice(-6).toUpperCase()}`
-              return (
-                <div key={order.id} className="px-4 py-3 flex items-center justify-between text-xs hover:bg-[var(--bg-table-row-hover)] transition-colors">
-                  <div className="min-w-0">
-                    <div className="font-medium text-[var(--text-primary)]">{num}</div>
-                    <div className="text-[var(--text-tertiary)] text-[11px] truncate max-w-[200px] mt-0.5">{order.client?.fullName || '—'}</div>
+            <div className="divide-y divide-[var(--border-secondary)]">
+              {auditLogs.slice(0, 5).map(log => (
+                <div key={log.id} className="flex items-start gap-3 px-5 py-2">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--bg-surface-secondary)] text-[10px] font-semibold text-[var(--text-secondary)]">{log.user?.fullName?.slice(0, 1).toUpperCase() || '?'}</div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs text-[var(--text-primary)]"><span className="font-medium">{log.user?.fullName || 'Система'}</span> <span className="text-[var(--text-secondary)]">{formatAction(log.action)}</span></p>
+                    {log.comment && <p className="mt-1 truncate text-[10px] text-[var(--text-tertiary)]">{log.comment}</p>}
                   </div>
-                  <div className="text-right shrink-0 pl-3">
-                    <div className="font-semibold text-[var(--text-primary)]">{price.toLocaleString('ru-RU')} ₽</div>
-                    <div className="text-[10px] text-[var(--text-tertiary)] font-mono mt-0.5">
-                      {new Date(order.createdAt).toLocaleDateString('ru-RU')}
+                  <span className="shrink-0 whitespace-nowrap text-[9px] text-[var(--text-tertiary)]">{timeAgo(log.createdAt)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </article>
+
+        <article className="erp-card min-h-[300px] overflow-hidden xl:col-span-4">
+          <header className="flex items-center justify-between border-b border-[var(--border-secondary)] px-5 py-4">
+            <h2 className="!text-[16px] !leading-5 font-semibold tracking-[-0.02em] text-[var(--text-primary)]">Последние заказы</h2>
+            <Link href="/orders" className="text-[11px] font-medium text-[var(--accent-primary)]">Показать все</Link>
+          </header>
+          {latestOrders.length === 0 ? (
+            <div className="px-5 py-14 text-center text-xs text-[var(--text-tertiary)]">Заказов пока нет</div>
+          ) : (
+            <div className="divide-y divide-[var(--border-secondary)]">
+              {latestOrders.map(order => {
+                const price = (order.totalPrice - order.discount + order.deliveryPrice + order.assemblyPrice) / 100
+                const number = order.number ? `№${order.number}` : `#${order.id.slice(-6).toUpperCase()}`
+                return (
+                  <div key={order.id} className="grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-3 px-5 py-2 text-xs hover:bg-[var(--bg-table-row-hover)]">
+                    <span className="font-medium text-[var(--text-secondary)]">{number}</span>
+                    <span className="truncate text-[var(--text-primary)]">{order.client?.fullName || '—'}</span>
+                    <div className="text-right">
+                      <p className="whitespace-nowrap font-medium text-[var(--text-primary)]">{price.toLocaleString('ru-RU')} ₽</p>
+                      <p className="mt-1 text-[9px] text-[var(--text-tertiary)]">{new Date(order.createdAt).toLocaleDateString('ru-RU')}</p>
                     </div>
                   </div>
-                </div>
-              )
-            })
+                )
+              })}
+            </div>
           )}
-        </div>
-      </div>
+          <div className="border-t border-[var(--border-secondary)] px-5 py-3">
+            <Link href="/orders" className="flex items-center justify-between text-[11px] font-medium text-[var(--accent-primary)]">Перейти к реестру заказов <ArrowRight className="h-3.5 w-3.5" /></Link>
+          </div>
+        </article>
+      </section>
     </div>
   )
 }

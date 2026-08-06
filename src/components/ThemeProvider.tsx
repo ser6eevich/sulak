@@ -26,21 +26,22 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
     const meta = document.getElementById('theme-color-meta')
     if (meta) {
-      meta.setAttribute('content', newTheme === 'dark' ? '#0B0E14' : '#F8FAFC')
+      meta.setAttribute('content', newTheme === 'dark' ? '#10141B' : '#F8FAFC')
     }
   }
 
   useEffect(() => {
     const stored = localStorage.getItem('sulak-theme') as Theme | null
+    let initialTheme: Theme
     if (stored === 'light' || stored === 'dark') {
-      setThemeState(stored)
-      applyThemeToDOM(stored)
+      initialTheme = stored
     } else {
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-      const initialTheme: Theme = prefersDark ? 'dark' : 'light'
-      setThemeState(initialTheme)
-      applyThemeToDOM(initialTheme)
+      initialTheme = prefersDark ? 'dark' : 'light'
     }
+    applyThemeToDOM(initialTheme)
+    const timeoutId = window.setTimeout(() => setThemeState(initialTheme), 0)
+    return () => window.clearTimeout(timeoutId)
   }, [])
 
   const setTheme = (newTheme: Theme) => {

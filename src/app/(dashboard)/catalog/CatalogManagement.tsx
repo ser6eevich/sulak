@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { 
   createProductWithVariantsAction, 
   updateProductWithVariantsAction,
@@ -20,8 +20,10 @@ import {
   Folder,
   FolderPlus,
   ArrowLeft,
+  ArrowRight,
   Pencil,
-  Copy
+  Copy,
+  PackageOpen
 } from 'lucide-react'
 
 interface Category {
@@ -38,6 +40,20 @@ interface ProductFolder {
   name: string
 }
 
+export interface CatalogAttributes {
+  tableVariantId?: string
+  tableSku?: string
+  tableName?: string
+  tableSize?: string
+  tableColor?: string
+  tablePattern?: string
+  chairVariantId?: string
+  chairSku?: string
+  chairName?: string
+  chairColor?: string
+  chairQuantity?: number
+}
+
 interface ProductVariant {
   id: string
   sku: string
@@ -49,7 +65,7 @@ interface ProductVariant {
   salePrice: number
   weight: unknown | null
   volume: unknown | null
-  attributes: any | null
+  attributes: CatalogAttributes | null
 }
 
 interface VariantRow {
@@ -64,7 +80,7 @@ interface VariantRow {
   weight: number | string
   volume: number | string
   isCustomSku: boolean
-  attributes?: any | null
+  attributes?: CatalogAttributes | null
 }
 
 interface ProductWithVariants {
@@ -84,6 +100,8 @@ interface CatalogManagementProps {
   categories: Category[]
   initialProducts: ProductWithVariants[]
   initialFolders: ProductFolder[]
+  initialCategorySlug?: string
+  initialFolderId?: string | null
   userRole?: string
 }
 
@@ -143,22 +161,31 @@ function generateSku(base: string, color: string, pattern: string, size: string)
   return sku
 }
 
-export default function CatalogManagement({ categories, initialProducts, initialFolders, userRole }: CatalogManagementProps) {
+export default function CatalogManagement({
+  categories,
+  initialProducts,
+  initialFolders,
+  initialCategorySlug,
+  initialFolderId,
+  userRole,
+}: CatalogManagementProps) {
   const canEditCatalog = ['admin', 'owner'].includes(userRole || '')
   const [products, setProducts] = useState<ProductWithVariants[]>(initialProducts)
   const [folders, setFolders] = useState<ProductFolder[]>(initialFolders)
-  const [activeCategorySlug, setActiveCategorySlug] = useState(categories[0]?.slug || '')
+  const resolvedCategorySlug: string = initialCategorySlug && categories.some(category => category.slug === initialCategorySlug)
+    ? initialCategorySlug
+    : categories[0]?.slug || ''
+  const resolvedFolderId = initialFolderId && initialFolders.some(folder => folder.id === initialFolderId)
+    ? initialFolderId
+    : null
+  const [activeCategorySlug, setActiveCategorySlug] = useState(
+    resolvedCategorySlug
+  )
   
   // Текущая папка внутри категории (поддерживается в столах и комплектах)
-  const [activeFolderId, setActiveFolderId] = useState<string | null>(null)
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const cat = params.get('category')
-    const fld = params.get('folder')
-    if (cat) setActiveCategorySlug(cat)
-    if (fld) setActiveFolderId(fld)
-  }, [])
+  const [activeFolderId, setActiveFolderId] = useState<string | null>(
+    resolvedFolderId
+  )
 
   const updateUrlParams = (catSlug: string, fldId: string | null) => {
     if (typeof window !== 'undefined') {
@@ -689,80 +716,117 @@ export default function CatalogManagement({ categories, initialProducts, initial
     return matchesCategory && matchesFolder && matchesSearch
   })
 
+  const activeCategory = categories.find(category => category.id === activeCategoryId)
+  const activeCategoryProducts = products.filter(product => product.categoryId === activeCategoryId)
+  const activeCategoryVariants = activeCategoryProducts.reduce((total, product) => total + product.variants.length, 0)
+  const activeFolder = activeFolderId ? folders.find(folder => folder.id === activeFolderId) : null
+
 
   return (
-    <div className="space-y-4">
-      {/* Выбор категории */}
-      <div className="flex overflow-x-auto gap-1.5 p-1.5 erp-card max-w-full w-full min-w-0 scrollbar-none">
-        {categories.map(cat => (
-          <button
-            key={cat.id}
-            onClick={() => {
-              setActiveCategorySlug(cat.slug)
-              setActiveFolderId(null) // при смене категории сбрасываем выбранную папку
-              updateUrlParams(cat.slug, null)
-            }}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all cursor-pointer whitespace-nowrap ${
-              activeCategorySlug === cat.slug
-                ? 'bg-[var(--accent-soft)] text-[var(--accent-text)] font-semibold'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
-            }`}
-          >
-            {cat.name}
-          </button>
-        ))}
-      </div>
+    <div className="space-y-3">
+      <section className="erp-card overflow-hidden">
+        <div className="flex min-w-0 items-center gap-1 overflow-x-auto border-b border-[var(--border-primary)] px-3 py-2 scrollbar-none">
+          {categories.map(cat => {
+            const categoryCount = products.filter(product => product.categoryId === cat.id).length
 
-      {/* Поиск и создание */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between erp-card p-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-tertiary)] pointer-events-none z-10" />
-          <input
-            type="text"
-            placeholder="Поиск по названию, базовому SKU или модификации..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="erp-input w-full !pl-9"
-          />
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                aria-pressed={activeCategorySlug === cat.slug}
+                onClick={() => {
+                  setActiveCategorySlug(cat.slug)
+                  setActiveFolderId(null)
+                  updateUrlParams(cat.slug, null)
+                }}
+                className={`inline-flex min-h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-xs font-medium transition-colors ${
+                  activeCategorySlug === cat.slug
+                    ? 'bg-[var(--accent-soft)] text-[var(--accent-text)]'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                {cat.name}
+                <span className={`rounded-md px-1.5 py-0.5 text-[9px] tabular-nums ${
+                  activeCategorySlug === cat.slug
+                    ? 'bg-[var(--bg-surface)]/75 text-[var(--accent-primary)]'
+                    : 'bg-[var(--bg-surface-hover)] text-[var(--text-tertiary)]'
+                }`}>
+                  {categoryCount}
+                </span>
+              </button>
+            )
+          })}
         </div>
 
-        {canEditCatalog && (
-          <div className="flex items-center gap-2">
-            {/* Кнопка "Создать папку/подпапку", если категория поддерживает папки */}
-            {supportsFolders && (
+        <div className="flex flex-col gap-3 px-4 py-3.5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="relative min-w-0 flex-1 lg:max-w-[520px]">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-[var(--text-tertiary)]" strokeWidth={1.8} />
+            <input
+              type="search"
+              aria-label="Поиск моделей"
+              placeholder="Название модели, базовый SKU или модификация"
+              value={search}
+              onChange={event => setSearch(event.target.value)}
+              className="erp-input h-10 w-full !rounded-xl !pl-10 !pr-10"
+            />
+            {search && (
               <button
+                type="button"
+                onClick={() => setSearch('')}
+                aria-label="Очистить поиск"
+                className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {supportsFolders && canEditCatalog && (
+              <button
+                type="button"
                 onClick={() => {
                   setFolderName('')
                   setFolderModalOpen(true)
                 }}
-                className="erp-button-secondary inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                className="erp-button-secondary inline-flex min-h-10 items-center justify-center gap-2 !rounded-xl"
               >
-                <FolderPlus className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
+                <FolderPlus className="h-4 w-4" strokeWidth={1.8} />
                 {activeFolderId ? 'Создать подпапку' : 'Создать папку'}
               </button>
             )}
 
-            <button
-              onClick={() => {
-                setFormName('')
-                setFormDescription('')
-                setFormBaseSku('')
-                setFormUnit('шт')
-                setFormTrackInventory(true)
-                setFormCategoryId(activeCategoryId)
-                setFormFolderId(activeFolderId || '') // Если зашли в папку, создаем сразу в ней
-                setErrorMsg('')
-                setVariantsList([createNewVariantRow(activeCategorySlug)])
-                setAddModalOpen(true)
-              }}
-              className="erp-button-primary inline-flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <Plus className="h-4 w-4" />
-              Добавить модель
-            </button>
+            {canEditCatalog && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFormName('')
+                  setFormDescription('')
+                  setFormBaseSku('')
+                  setFormUnit('шт')
+                  setFormTrackInventory(true)
+                  setFormCategoryId(activeCategoryId)
+                  setFormFolderId(activeFolderId || '')
+                  setErrorMsg('')
+                  setVariantsList([createNewVariantRow(activeCategorySlug)])
+                  setAddModalOpen(true)
+                }}
+                className="erp-button-primary inline-flex min-h-10 items-center justify-center gap-2 !rounded-xl"
+              >
+                <Plus className="h-4 w-4" strokeWidth={2} />
+                Добавить модель
+              </button>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-[var(--border-primary)] bg-[var(--bg-surface-hover)]/45 px-4 py-2 text-[10px] text-[var(--text-tertiary)]">
+          <span><strong className="font-medium text-[var(--text-secondary)]">{activeCategory?.name || 'Категория'}</strong></span>
+          <span>{activeCategoryProducts.length} моделей</span>
+          <span>{activeCategoryVariants} SKU</span>
+          {activeFolder && <span>Папка: <strong className="font-medium text-[var(--text-secondary)]">{activeFolder.name}</strong></span>}
+        </div>
+      </section>
 
       {/* Хлебные крошки, если провалились в папку */}
       {supportsFolders && activeFolderId && (() => {
@@ -775,7 +839,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
         }
 
         return (
-          <div className="flex items-center justify-between bg-[var(--bg-surface)] px-4 py-2.5 rounded-lg border border-[var(--border-primary)] text-xs font-medium text-[var(--text-secondary)]">
+          <div className="erp-card flex items-center justify-between px-4 py-2.5 text-xs font-medium text-[var(--text-secondary)]">
             <div className="flex items-center flex-wrap gap-2">
               <button 
                 onClick={() => {
@@ -822,36 +886,49 @@ export default function CatalogManagement({ categories, initialProducts, initial
         )
       })()}
 
-      {/* Блок Папок (Notion-стиль) */}
       {supportsFolders && categoryFolders.length > 0 && (
-        <div className="space-y-2">
-          <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4">
+        <section className="space-y-2.5">
+          <div className="flex items-end justify-between px-1">
+            <div>
+              <h2 className="text-[15px] font-semibold tracking-[-0.02em] text-[var(--text-primary)]">Папки</h2>
+              <p className="mt-0.5 text-[10px] text-[var(--text-tertiary)]">Откройте папку, чтобы перейти к моделям</p>
+            </div>
+            <span className="text-[10px] tabular-nums text-[var(--text-tertiary)]">{categoryFolders.length}</span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
             {categoryFolders.map(folder => {
-              // Считаем количество товаров в этой папке (включая подпапки)
               const folderProductsCount = getRecursiveFolderProductsCount(folder.id, activeCategoryId)
 
               return (
                 <div
                   key={folder.id}
-                  onClick={() => {
-                    setActiveFolderId(folder.id)
-                    updateUrlParams(activeCategorySlug, folder.id)
-                  }}
-                  className="relative group erp-card p-4 cursor-pointer hover:border-[var(--accent-primary)]/40 hover:shadow-sm transition-all flex items-center gap-3"
+                  className="group relative min-h-[84px] rounded-[16px] border border-[var(--border-primary)] bg-[var(--bg-surface)] transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-px hover:border-[var(--accent-primary)]/35 hover:shadow-[0_8px_24px_rgba(15,23,42,0.05)]"
                 >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[var(--accent-soft)] text-[var(--accent-primary)]">
-                    <Folder className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0 pr-4">
-                    <h4 className="font-medium text-[var(--text-primary)] text-xs truncate">{folder.name}</h4>
-                    <p className="text-[10px] text-[var(--text-tertiary)] font-normal mt-0.5 uppercase tracking-wider">{folderProductsCount} товаров</p>
-                  </div>
-                  {/* Кнопка удаления папки */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveFolderId(folder.id)
+                      updateUrlParams(activeCategorySlug, folder.id)
+                    }}
+                    className="flex min-h-[82px] w-full items-center gap-3 rounded-[15px] px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent-primary)]/30"
+                  >
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+                      <Folder className="h-[18px] w-[18px]" strokeWidth={1.8} />
+                    </div>
+                    <div className="min-w-0 flex-1 pr-5">
+                      <h3 className="truncate text-xs font-medium text-[var(--text-primary)]">{folder.name}</h3>
+                      <p className="mt-1 text-[10px] text-[var(--text-tertiary)]">{folderProductsCount} моделей</p>
+                    </div>
+                    <ArrowRight className="h-4 w-4 shrink-0 text-[var(--text-tertiary)] transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--accent-primary)]" strokeWidth={1.8} />
+                  </button>
                   {canEditCatalog && (
                     <button
+                      type="button"
                       onClick={(e) => handleDeleteFolder(folder.id, e)}
-                      className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--danger-soft)] text-[var(--text-tertiary)] hover:text-[var(--danger)] transition-all cursor-pointer"
+                      className="absolute right-9 top-2 flex h-7 w-7 items-center justify-center rounded-lg text-[var(--text-tertiary)] opacity-0 transition-all hover:bg-[var(--danger-soft)] hover:text-[var(--danger)] group-hover:opacity-100 focus:opacity-100"
                       title="Удалить папку"
+                      aria-label={`Удалить папку ${folder.name}`}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -860,126 +937,164 @@ export default function CatalogManagement({ categories, initialProducts, initial
               )
             })}
           </div>
-        </div>
+        </section>
       )}
 
-      {/* Список моделей */}
-      <div className="space-y-3">
+      <section className="overflow-hidden rounded-[18px] border border-[var(--border-primary)] bg-[var(--bg-surface)]">
+        <div className="flex items-center justify-between border-b border-[var(--border-primary)] px-4 py-3.5">
+          <div>
+            <h2 className="text-[15px] font-semibold tracking-[-0.02em] text-[var(--text-primary)]">Модели</h2>
+            <p className="mt-0.5 text-[10px] text-[var(--text-tertiary)]">
+              {activeFolder ? `Содержимое папки «${activeFolder.name}»` : `Корневой уровень категории «${activeCategory?.name || ''}»`}
+            </p>
+          </div>
+          <span className="rounded-lg bg-[var(--bg-surface-hover)] px-2.5 py-1 text-[10px] font-medium tabular-nums text-[var(--text-secondary)]">
+            {filteredProducts.length}
+          </span>
+        </div>
+
         {filteredProducts.length === 0 ? (
-          <div className="bg-white border border-border-main rounded-card p-16 text-center text-slate-450 text-xs font-semibold uppercase tracking-wider">
-            {activeFolderId 
-              ? 'В этой папке пока нет моделей' 
-              : 'Модели в данной категории не найдены'}
+          <div className="flex min-h-[168px] flex-col items-center justify-center px-6 py-10 text-center">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--bg-surface-hover)] text-[var(--text-tertiary)]">
+              <PackageOpen className="h-5 w-5" strokeWidth={1.6} />
+            </div>
+            <p className="mt-3 text-xs font-medium text-[var(--text-primary)]">
+              {search
+                ? 'По вашему запросу ничего не найдено'
+                : activeFolderId
+                  ? 'В этой папке пока нет моделей'
+                  : categoryFolders.length > 0
+                    ? 'Модели распределены по папкам выше'
+                    : 'В этой категории пока нет моделей'}
+            </p>
+            <p className="mt-1 max-w-sm text-[10px] leading-4 text-[var(--text-tertiary)]">
+              {search
+                ? 'Попробуйте изменить запрос или очистить поле поиска.'
+                : categoryFolders.length > 0 && !activeFolderId
+                  ? 'Выберите нужную папку, чтобы открыть список моделей и модификаций.'
+                  : canEditCatalog
+                    ? 'Добавьте первую модель с помощью кнопки выше.'
+                    : 'Здесь появятся доступные модели.'}
+            </p>
           </div>
         ) : (
-          filteredProducts.map(product => {
+          <div className="divide-y divide-[var(--border-primary)]">
+            {filteredProducts.map(product => {
             const isExpanded = expandedProductIds.has(product.id)
+            const salePrices = product.variants.map(variant => variant.salePrice / 100)
+            const minSalePrice = salePrices.length ? Math.min(...salePrices) : 0
+            const maxSalePrice = salePrices.length ? Math.max(...salePrices) : 0
+            const salePriceLabel = minSalePrice === maxSalePrice
+              ? `${minSalePrice.toLocaleString('ru-RU')} ₽`
+              : `${minSalePrice.toLocaleString('ru-RU')}–${maxSalePrice.toLocaleString('ru-RU')} ₽`
+
             return (
               <div 
                 key={product.id}
-                className="bg-white border border-border-main rounded-card overflow-hidden"
+                className="overflow-hidden bg-[var(--bg-surface)]"
               >
-                {/* Карточка модели */}
-                <div 
-                  className="flex items-center justify-between p-6 cursor-pointer hover:bg-slate-50/50 transition-colors"
-                  onClick={() => toggleExpand(product.id)}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-[12px] bg-brand/10 text-brand">
-                      <Grid className="h-5 w-5" />
+                <div className="flex min-w-0 items-center gap-2 px-3 py-2.5 transition-colors hover:bg-[var(--bg-surface-hover)]/55 sm:px-4">
+                  <button
+                    type="button"
+                    aria-expanded={isExpanded}
+                    onClick={() => toggleExpand(product.id)}
+                    className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)]/30"
+                  >
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+                      <Grid className="h-[18px] w-[18px]" strokeWidth={1.8} />
                     </div>
-                    <div>
-                      <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm">
-                        {product.name}
-                        <span className="text-[10px] font-bold text-slate-400 font-mono bg-slate-50 px-2 py-0.5 rounded border border-border-main">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <h3 className="truncate text-xs font-medium text-[var(--text-primary)]">{product.name}</h3>
+                        <span className="rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface-hover)] px-1.5 py-0.5 font-mono text-[9px] text-[var(--text-tertiary)]">
                           {product.baseSku}
                         </span>
                         {product.folderId && !activeFolderId && (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-brand bg-brand/5 px-2 py-0.5 rounded border border-brand/10">
+                          <span className="inline-flex items-center gap-1 rounded-md bg-[var(--accent-soft)] px-1.5 py-0.5 text-[9px] text-[var(--accent-text)]">
                             <Folder className="h-3 w-3" />
                             {folders.find(f => f.id === product.folderId)?.name}
                           </span>
                         )}
-                      </h3>
-                      <p className="text-[11px] text-slate-450 font-medium mt-1">
+                      </div>
+                      <p className="mt-1 truncate text-[10px] text-[var(--text-tertiary)]">
                         {product.description || 'Описание не заполнено'}
                       </p>
                     </div>
-                  </div>
-
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <span className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2.5 py-1 text-[10px] font-bold text-slate-600 ring-1 ring-inset ring-slate-500/10">
-                        <Layers className="h-3.5 w-3.5" />
-                        {product.variants.length} SKU
-                      </span>
+                    <div className="hidden shrink-0 items-center gap-8 pr-2 text-right md:flex">
+                      <div className="min-w-[72px]">
+                        <p className="text-[9px] uppercase tracking-[0.1em] text-[var(--text-tertiary)]">SKU</p>
+                        <p className="mt-1 text-xs font-medium tabular-nums text-[var(--text-primary)]">{product.variants.length}</p>
+                      </div>
+                      <div className="min-w-[130px]">
+                        <p className="text-[9px] uppercase tracking-[0.1em] text-[var(--text-tertiary)]">Цена продажи</p>
+                        <p className="mt-1 text-xs font-medium tabular-nums text-[var(--text-primary)]">{salePriceLabel}</p>
+                      </div>
                     </div>
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-tertiary)]">
+                      {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </div>
+                  </button>
 
-                    <div className="flex items-center gap-2">
-                      {canEditCatalog && (
-                        <>
-                          {/* Кнопка Копирования */}
+                  {canEditCatalog && (
+                    <div className="flex shrink-0 items-center gap-0.5 border-l border-[var(--border-primary)] pl-2">
                           <button
+                            type="button"
                             onClick={(e) => {
                               e.stopPropagation()
                               openCopyModal(product)
                             }}
-                            className="inline-flex p-1.5 rounded-lg text-slate-400 hover:text-brand hover:bg-brand/10 transition-colors cursor-pointer"
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-tertiary)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--accent-primary)]"
                             title="Копировать товар"
+                            aria-label={`Копировать модель ${product.name}`}
                           >
-                            <Copy className="h-4 w-4" />
+                            <Copy className="h-3.5 w-3.5" />
                           </button>
 
-                          {/* Кнопка Редактирования */}
                           <button
+                            type="button"
                             onClick={(e) => {
                               e.stopPropagation()
                               openEditModal(product)
                             }}
-                            className="inline-flex p-1.5 rounded-lg text-slate-400 hover:text-brand hover:bg-brand/10 transition-colors cursor-pointer"
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-tertiary)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--accent-primary)]"
                             title="Редактировать товар"
+                            aria-label={`Редактировать модель ${product.name}`}
                           >
-                            <Pencil className="h-4 w-4" />
+                            <Pencil className="h-3.5 w-3.5" />
                           </button>
 
-                          {/* Кнопка Архивирования */}
                           <button
+                            type="button"
                             onClick={(e) => {
                               e.stopPropagation()
                               handleArchiveProduct(product.id)
                             }}
                             disabled={loading === product.id}
-                            className="inline-flex p-1.5 rounded-lg text-slate-400 hover:text-red-650 hover:bg-red-50/30 transition-colors cursor-pointer disabled:opacity-50"
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-tertiary)] transition-colors hover:bg-[var(--danger-soft)] hover:text-[var(--danger)] disabled:opacity-50"
                             title="В архив"
+                            aria-label={`Архивировать модель ${product.name}`}
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="h-3.5 w-3.5" />
                           </button>
-                        </>
-                      )}
-                      <div className="text-slate-400 p-1">
-                        {isExpanded ? <ChevronUp className="h-4.5 w-4.5" /> : <ChevronDown className="h-4.5 w-4.5" />}
-                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
-                {/* Выпадающий список SKU */}
                 {isExpanded && (
-                  <div className="border-t border-border-main bg-slate-50/30 p-6">
-                    <div className="border border-border-main rounded-[16px] overflow-hidden bg-white">
-                      <table className="w-full text-xs text-left">
+                  <div className="overflow-x-auto border-t border-[var(--border-primary)] bg-[var(--bg-surface-hover)]/35 px-3 py-3 sm:px-4">
+                    <div className="min-w-[720px] overflow-hidden rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)]">
+                      <table className="w-full text-left text-[10px]">
                         <thead>
-                          <tr className="border-b border-border-main text-slate-400 font-bold uppercase tracking-wider bg-slate-50/50">
-                            <th className="p-3 pl-6">Артикул (SKU)</th>
-                            <th className="p-3">Характеристики</th>
-                            <th className="p-3 text-right">Закупка</th>
-                            <th className="p-3 text-right pr-6">Продажа</th>
+                          <tr className="border-b border-[var(--border-primary)] bg-[var(--bg-surface-hover)]/55 text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--text-tertiary)]">
+                            <th className="px-4 py-2.5">Артикул (SKU)</th>
+                            <th className="px-4 py-2.5">Характеристики</th>
+                            <th className="px-4 py-2.5 text-right">Закупка</th>
+                            <th className="px-4 py-2.5 text-right">Продажа</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
+                        <tbody className="divide-y divide-[var(--border-primary)] text-[var(--text-secondary)]">
                           {product.variants.map(variant => {
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            const pattern = variant.thickness || (variant.attributes as any)?.tablePattern || null
+                            const pattern = variant.thickness || variant.attributes?.tablePattern || null
                             const features = [
                               variant.size ? `Размер: ${variant.size}` : null,
                               variant.color ? `Цвет: ${variant.color}` : null,
@@ -988,11 +1103,11 @@ export default function CatalogManagement({ categories, initialProducts, initial
                             ].filter(Boolean).join(', ')
 
                             return (
-                              <tr key={variant.id} className="hover:bg-slate-50/50 transition-colors">
-                                <td className="p-3 pl-6 font-mono font-bold text-slate-800">{variant.sku}</td>
-                                <td className="p-3 text-slate-500 font-medium">{features || 'Базовый вариант'}</td>
-                                <td className="p-3 text-right text-slate-500">{(variant.purchasePrice / 100).toLocaleString('ru-RU')} ₽</td>
-                                <td className="p-3 text-right pr-6 font-bold text-slate-800">{(variant.salePrice / 100).toLocaleString('ru-RU')} ₽</td>
+                              <tr key={variant.id} className="transition-colors hover:bg-[var(--bg-surface-hover)]/45">
+                                <td className="px-4 py-2.5 font-mono font-medium text-[var(--text-primary)]">{variant.sku}</td>
+                                <td className="px-4 py-2.5 text-[var(--text-secondary)]">{features || 'Базовый вариант'}</td>
+                                <td className="px-4 py-2.5 text-right tabular-nums text-[var(--text-secondary)]">{(variant.purchasePrice / 100).toLocaleString('ru-RU')} ₽</td>
+                                <td className="px-4 py-2.5 text-right font-medium tabular-nums text-[var(--text-primary)]">{(variant.salePrice / 100).toLocaleString('ru-RU')} ₽</td>
                               </tr>
                             )
                           })}
@@ -1003,22 +1118,25 @@ export default function CatalogManagement({ categories, initialProducts, initial
                 )}
               </div>
             )
-          })
+            })}
+          </div>
         )}
-      </div>
+      </section>
 
       {/* Модальное окно: Создание папки */}
       {folderModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-sm">
-          <div className="relative w-full max-w-md bg-white border border-border-main rounded-card shadow-xl overflow-hidden">
-            <div className="flex h-14 items-center justify-between border-b border-border-main px-6">
-              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                <FolderPlus className="h-4.5 w-4.5 text-brand" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]">
+          <div role="dialog" aria-modal="true" aria-labelledby="create-folder-title" className="relative w-full max-w-md overflow-hidden rounded-[20px] border border-[var(--border-primary)] bg-[var(--bg-surface)] shadow-[0_24px_80px_rgba(15,23,42,0.18)]">
+            <div className="flex h-16 items-center justify-between border-b border-[var(--border-primary)] px-6">
+              <h3 id="create-folder-title" className="flex items-center gap-2.5 text-sm font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+                  <FolderPlus className="h-4 w-4" strokeWidth={1.8} />
+                </span>
                 Создать новую папку
               </h3>
               <button
                 onClick={() => setFolderModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-500 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                className="p-1.5 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] rounded-lg hover:bg-[var(--bg-surface-hover)] transition-colors cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1026,7 +1144,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
 
             <form onSubmit={handleCreateFolder} className="p-6 space-y-4">
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
                   Название папки *
                 </label>
                 <input
@@ -1035,22 +1153,22 @@ export default function CatalogManagement({ categories, initialProducts, initial
                   placeholder="Например, Овальные столы"
                   value={folderName}
                   onChange={e => setFolderName(e.target.value)}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-border-main rounded-btn outline-none transition focus:border-brand focus:bg-white"
+                  className="w-full px-3 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:bg-[var(--bg-surface)]"
                 />
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-border-main">
+              <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border-primary)]">
                 <button
                   type="button"
                   onClick={() => setFolderModalOpen(false)}
-                  className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-btn transition-colors cursor-pointer"
+                  className="erp-button-secondary min-h-10 !rounded-xl px-4"
                 >
                   Отмена
                 </button>
                 <button
                   type="submit"
                   disabled={loading === 'folder'}
-                  className="px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-btn text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-50"
+                  className="erp-button-primary min-h-10 !rounded-xl px-5 disabled:opacity-50"
                 >
                   {loading === 'folder' ? 'Создание...' : 'Создать'}
                 </button>
@@ -1062,16 +1180,18 @@ export default function CatalogManagement({ categories, initialProducts, initial
 
       {/* Модальное окно: Создание модели */}
       {addModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-sm">
-          <div className="relative w-full max-w-5xl bg-white border border-border-main rounded-card shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex h-14 items-center justify-between border-b border-border-main px-6 shrink-0">
-              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                <Grid className="h-4.5 w-4.5 text-brand" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]">
+          <div role="dialog" aria-modal="true" aria-labelledby="create-model-title" className="relative flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-[20px] border border-[var(--border-primary)] bg-[var(--bg-surface)] shadow-[0_24px_80px_rgba(15,23,42,0.18)]">
+            <div className="flex h-16 shrink-0 items-center justify-between border-b border-[var(--border-primary)] px-6">
+              <h3 id="create-model-title" className="flex items-center gap-2.5 text-sm font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+                  <Grid className="h-4 w-4" strokeWidth={1.8} />
+                </span>
                 Добавление новой модели
               </h3>
               <button
                 onClick={() => setAddModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-500 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                className="p-1.5 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] rounded-lg hover:bg-[var(--bg-surface-hover)] transition-colors cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1087,35 +1207,35 @@ export default function CatalogManagement({ categories, initialProducts, initial
               {/* Основные параметры */}
               <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
                 <div className="sm:col-span-2">
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Название модели *</label>
+                  <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">Название модели *</label>
                   <input
                     type="text"
                     required
                     placeholder="Например, Стол Версаль"
                     value={formName}
                     onChange={e => setFormName(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-border-main rounded-btn outline-none transition focus:border-brand focus:bg-white"
+                    className="w-full px-3 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:bg-[var(--bg-surface)]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Базовый артикул (Base SKU) *</label>
+                  <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">Базовый артикул (Base SKU) *</label>
                   <input
                     type="text"
                     required
                     placeholder="Например, T-VERS"
                     value={formBaseSku}
                     onChange={e => handleBaseSkuChange(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-border-main rounded-btn outline-none transition focus:border-brand focus:bg-white uppercase font-mono"
+                    className="w-full px-3 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:bg-[var(--bg-surface)] uppercase font-mono"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Категория мебели *</label>
+                  <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">Категория мебели *</label>
                   <select
                     value={formCategoryId}
                     onChange={e => handleCategoryChange(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-border-main rounded-btn outline-none transition focus:border-brand focus:bg-white cursor-pointer"
+                    className="w-full px-3 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:bg-[var(--bg-surface)] cursor-pointer"
                   >
                     {categories.map(cat => (
                       <option key={cat.id} value={cat.id}>{cat.name}</option>
@@ -1126,11 +1246,11 @@ export default function CatalogManagement({ categories, initialProducts, initial
                 {/* Выбор папки для столов и комплектов */}
                 {formSupportsFolders && (
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Папка в каталоге</label>
+                    <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">Папка в каталоге</label>
                     <select
                       value={formFolderId}
                       onChange={e => setFormFolderId(e.target.value)}
-                      className="w-full px-3 py-2 text-xs bg-slate-50 border border-border-main rounded-btn outline-none transition focus:border-brand focus:bg-white cursor-pointer font-bold text-brand"
+                      className="w-full px-3 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:bg-[var(--bg-surface)] cursor-pointer font-bold text-[var(--accent-primary)]"
                     >
                       <option value="">Без папки (в корне)</option>
                       {getFolderOptions(formCategoryId).map(f => (
@@ -1141,22 +1261,22 @@ export default function CatalogManagement({ categories, initialProducts, initial
                 )}
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Ед. измерения</label>
+                  <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">Ед. измерения</label>
                   <input
                     type="text"
                     required
                     value={formUnit}
                     onChange={e => setFormUnit(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-border-main rounded-btn outline-none transition focus:border-brand focus:bg-white"
+                    className="w-full px-3 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:bg-[var(--bg-surface)]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Учет остатков</label>
+                  <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">Учет остатков</label>
                   <select
                     value={formTrackInventory ? 'true' : 'false'}
                     onChange={e => setFormTrackInventory(e.target.value === 'true')}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-border-main rounded-btn outline-none transition focus:border-brand focus:bg-white cursor-pointer"
+                    className="w-full px-3 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:bg-[var(--bg-surface)] cursor-pointer"
                   >
                     <option value="true">Да, отслеживать</option>
                     <option value="false">Нет, виртуальный товар</option>
@@ -1164,34 +1284,34 @@ export default function CatalogManagement({ categories, initialProducts, initial
                 </div>
 
                 <div className="sm:col-span-2 md:col-span-3">
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Описание модели</label>
+                  <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">Описание модели</label>
                   <textarea
                     rows={2}
                     value={formDescription}
                     onChange={e => setFormDescription(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-border-main rounded-btn outline-none transition focus:border-brand focus:bg-white resize-none"
+                    className="w-full px-3 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:bg-[var(--bg-surface)] resize-none"
                   />
                 </div>
               </div>
 
               {/* Блок добавления артикулов */}
               <div className="space-y-4">
-                <div className="flex items-center justify-between border-t border-border-main pt-6">
-                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                    <Layers className="h-4.5 w-4.5 text-brand" />
+                <div className="flex items-center justify-between border-t border-[var(--border-primary)] pt-6">
+                  <h4 className="text-xs font-semibold text-[var(--text-primary)] flex items-center gap-2">
+                    <Layers className="h-4.5 w-4.5 text-[var(--accent-primary)]" />
                     Модификации и артикулы модели
                   </h4>
                   <button
                     type="button"
                     onClick={addVariantRow}
-                    className="inline-flex items-center gap-1 bg-brand hover:bg-brand-hover text-white text-[10px] font-bold uppercase tracking-wider px-3.5 py-2 rounded-btn transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 bg-brand hover:bg-brand-hover text-white text-[10px] font-bold uppercase tracking-wider px-3.5 py-2 rounded-xl transition-colors cursor-pointer"
                   >
                     <Plus className="h-3.5 w-3.5" /> Добавить модификацию
                   </button>
                 </div>
 
                 {variantsList.length === 0 ? (
-                  <div className="text-center py-6 text-slate-400 text-xs border border-dashed border-border-main rounded-[16px]">
+                  <div className="text-center py-6 text-[var(--text-tertiary)] text-xs border border-dashed border-[var(--border-primary)] rounded-[16px]">
                     Нажмите «Добавить модификацию», чтобы создать артикулы для этой модели
                   </div>
                 ) : (
@@ -1199,21 +1319,21 @@ export default function CatalogManagement({ categories, initialProducts, initial
                     {variantsList.map((v, idx) => (
                       <div 
                         key={idx} 
-                        className="relative p-5 bg-slate-50/50 border border-border-main rounded-[16px] grid gap-4 sm:grid-cols-2 md:grid-cols-4 items-end"
+                        className="relative p-5 bg-[var(--bg-surface-hover)]/55 border border-[var(--border-primary)] rounded-[16px] grid gap-4 sm:grid-cols-2 md:grid-cols-4 items-end"
                       >
                         {variantsList.length > 1 && (
                           <button
                             type="button"
                             onClick={() => removeVariantRow(idx)}
-                            className="absolute -top-2.5 -right-2.5 p-1 bg-white border border-border-main hover:text-red-650 rounded-full shadow-sm cursor-pointer"
+                            className="absolute -top-2.5 -right-2.5 p-1 bg-[var(--bg-surface)] border border-[var(--border-primary)] hover:text-red-650 rounded-full shadow-sm cursor-pointer"
                           >
-                            <X className="h-3.5 w-3.5 text-slate-400 hover:text-red-500" />
+                            <X className="h-3.5 w-3.5 text-[var(--text-tertiary)] hover:text-red-500" />
                           </button>
                         )}
 
                         {/* Артикул */}
                         <div className="sm:col-span-2">
-                          <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider mb-1">
+                          <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
                             Артикул (SKU)
                           </label>
                           <input
@@ -1222,23 +1342,23 @@ export default function CatalogManagement({ categories, initialProducts, initial
                             placeholder="Автогенерация"
                             value={v.sku}
                             onChange={e => handleVariantFieldChange(idx, 'sku', e.target.value)}
-                            className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand font-mono font-bold"
+                            className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)] font-mono font-bold"
                           />
                         </div>
 
                         {/* Выбор стола и стула для комплекта */}
                         {selectedCategorySlug === 'sets' && (
-                          <div className="sm:col-span-2 md:col-span-4 grid gap-4 sm:grid-cols-2 md:grid-cols-3 bg-white p-4 rounded-xl border border-border-main mb-2">
+                          <div className="sm:col-span-2 md:col-span-4 grid gap-4 sm:grid-cols-2 md:grid-cols-3 bg-[var(--bg-surface)] p-4 rounded-xl border border-[var(--border-primary)] mb-2">
                             {/* Стол */}
                             <div className="space-y-1">
-                              <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider">
+                              <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider">
                                 Стол из каталога
                               </label>
                               {v.attributes?.tableVariantId ? (
-                                <div className="flex items-center justify-between gap-2 p-2 bg-slate-50 border border-border-main rounded-lg text-xs">
+                                <div className="flex items-center justify-between gap-2 p-2 bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-lg text-xs">
                                   <div className="min-w-0">
-                                    <p className="font-bold text-slate-800 truncate">{v.attributes.tableName}</p>
-                                    <p className="text-[10px] text-slate-400 font-medium">
+                                    <p className="font-bold text-[var(--text-primary)] truncate">{v.attributes.tableName}</p>
+                                    <p className="text-[10px] text-[var(--text-tertiary)] font-medium">
                                       {v.attributes.tableSize} | {v.attributes.tableColor} | {v.attributes.tablePattern}
                                     </p>
                                   </div>
@@ -1250,7 +1370,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
                                       setSetsSelectSearch(v.color || '')
                                       setSetsSelectOpen(true)
                                     }}
-                                    className="p-1 text-slate-400 hover:text-brand hover:bg-white rounded border border-transparent hover:border-border-main transition-all cursor-pointer shrink-0"
+                                    className="p-1 text-[var(--text-tertiary)] hover:text-[var(--accent-primary)] hover:bg-[var(--bg-surface)] rounded border border-transparent hover:border-[var(--border-primary)] transition-all cursor-pointer shrink-0"
                                   >
                                     <Pencil className="h-3.5 w-3.5" />
                                   </button>
@@ -1264,7 +1384,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
                                     setSetsSelectSearch(v.color || '')
                                     setSetsSelectOpen(true)
                                   }}
-                                  className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 bg-brand/5 hover:bg-brand/10 border border-dashed border-brand/20 hover:border-brand/40 text-brand text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                                  className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 bg-brand/5 hover:bg-brand/10 border border-dashed border-brand/20 hover:border-brand/40 text-[var(--accent-primary)] text-xs font-bold rounded-lg transition-colors cursor-pointer"
                                 >
                                   <Plus className="h-4 w-4" /> Выбрать стол
                                 </button>
@@ -1273,14 +1393,14 @@ export default function CatalogManagement({ categories, initialProducts, initial
 
                             {/* Стул */}
                             <div className="space-y-1">
-                              <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider">
+                              <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider">
                                 Стул из каталога
                               </label>
                               {v.attributes?.chairVariantId ? (
-                                <div className="flex items-center justify-between gap-2 p-2 bg-slate-50 border border-border-main rounded-lg text-xs">
+                                <div className="flex items-center justify-between gap-2 p-2 bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-lg text-xs">
                                   <div className="min-w-0">
-                                    <p className="font-bold text-slate-800 truncate">{v.attributes.chairName}</p>
-                                    <p className="text-[10px] text-slate-400 font-medium">{v.attributes.chairColor}</p>
+                                    <p className="font-bold text-[var(--text-primary)] truncate">{v.attributes.chairName}</p>
+                                    <p className="text-[10px] text-[var(--text-tertiary)] font-medium">{v.attributes.chairColor}</p>
                                   </div>
                                   <button
                                     type="button"
@@ -1290,7 +1410,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
                                       setSetsSelectSearch(v.color || '')
                                       setSetsSelectOpen(true)
                                     }}
-                                    className="p-1 text-slate-400 hover:text-brand hover:bg-white rounded border border-transparent hover:border-border-main transition-all cursor-pointer shrink-0"
+                                    className="p-1 text-[var(--text-tertiary)] hover:text-[var(--accent-primary)] hover:bg-[var(--bg-surface)] rounded border border-transparent hover:border-[var(--border-primary)] transition-all cursor-pointer shrink-0"
                                   >
                                     <Pencil className="h-3.5 w-3.5" />
                                   </button>
@@ -1304,7 +1424,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
                                     setSetsSelectSearch(v.color || '')
                                     setSetsSelectOpen(true)
                                   }}
-                                  className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 bg-brand/5 hover:bg-brand/10 border border-dashed border-brand/20 hover:border-brand/40 text-brand text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                                  className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 bg-brand/5 hover:bg-brand/10 border border-dashed border-brand/20 hover:border-brand/40 text-[var(--accent-primary)] text-xs font-bold rounded-lg transition-colors cursor-pointer"
                                 >
                                   <Plus className="h-4 w-4" /> Выбрать стул
                                 </button>
@@ -1313,7 +1433,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
 
                             {/* Количество стульев */}
                             <div className="space-y-1">
-                              <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider">
+                              <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider">
                                 Количество стульев
                               </label>
                               <div className="flex items-center gap-2">
@@ -1325,9 +1445,9 @@ export default function CatalogManagement({ categories, initialProducts, initial
                                   disabled={!v.attributes?.chairVariantId}
                                   value={v.attributes?.chairQuantity || 6}
                                   onChange={e => handleVariantFieldChange(idx, 'chairQuantity', e.target.value)}
-                                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-border-main rounded-lg outline-none focus:border-brand disabled:opacity-50 text-slate-700 font-bold"
+                                  className="w-full px-3 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-lg outline-none focus:border-[var(--accent-primary)] disabled:opacity-50 text-[var(--text-secondary)] font-bold"
                                 />
-                                <span className="text-xs text-slate-400 font-medium shrink-0">шт</span>
+                                <span className="text-xs text-[var(--text-tertiary)] font-medium shrink-0">шт</span>
                               </div>
                             </div>
                           </div>
@@ -1336,14 +1456,14 @@ export default function CatalogManagement({ categories, initialProducts, initial
                         {/* Размер */}
                         {selectedCategorySlug !== 'chairs' && selectedCategorySlug !== 'sofas' && selectedCategorySlug !== 'sets' && (
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider mb-1">
+                            <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
                               Размер
                             </label>
                             {selectedCategorySlug === 'tables' ? (
                               <select
                                 value={v.size}
                                 onChange={e => handleVariantFieldChange(idx, 'size', e.target.value)}
-                                className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand cursor-pointer font-bold text-slate-700"
+                                className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)] cursor-pointer font-bold text-[var(--text-secondary)]"
                               >
                                 <option value="120/160x80">120/160 80</option>
                                 <option value="140/180x85">140/180 85</option>
@@ -1357,7 +1477,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
                                 placeholder="120/160x80"
                                 value={v.size}
                                 onChange={e => handleVariantFieldChange(idx, 'size', e.target.value)}
-                                className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand"
+                                className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)]"
                               />
                             )}
                           </div>
@@ -1366,13 +1486,13 @@ export default function CatalogManagement({ categories, initialProducts, initial
                         {/* Цвет */}
                         {selectedCategorySlug !== 'sofas' && (
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider mb-1">
+                            <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
                               Цвет патины / каркаса
                             </label>
                             <select
                               value={v.color}
                               onChange={e => handleVariantFieldChange(idx, 'color', e.target.value)}
-                              className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand cursor-pointer"
+                              className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)] cursor-pointer"
                             >
                               {COLORS.map(c => (
                                 <option key={c} value={c}>{c}</option>
@@ -1384,13 +1504,13 @@ export default function CatalogManagement({ categories, initialProducts, initial
                         {/* Узор (для всех кроме стульев и диванов) */}
                         {selectedCategorySlug !== 'chairs' && selectedCategorySlug !== 'sofas' && (
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider mb-1">
+                            <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
                               Узор
                             </label>
                             <select
                               value={v.thickness}
                               onChange={e => handleVariantFieldChange(idx, 'thickness', e.target.value)}
-                              className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand cursor-pointer"
+                              className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)] cursor-pointer"
                             >
                               {PATTERNS.map(p => (
                                 <option key={p} value={p}>{p}</option>
@@ -1401,7 +1521,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
 
                         {/* Закупка */}
                         <div>
-                          <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider mb-1">
+                          <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
                             Закупка (₽)
                           </label>
                           <input
@@ -1411,13 +1531,13 @@ export default function CatalogManagement({ categories, initialProducts, initial
                             placeholder="12000"
                             value={v.purchasePrice}
                             onChange={e => handleVariantFieldChange(idx, 'purchasePrice', Number(e.target.value))}
-                            className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand"
+                            className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)]"
                           />
                         </div>
 
                         {/* Розничная цена */}
                         <div>
-                          <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider mb-1">
+                          <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
                             Продажа (₽) *
                           </label>
                           <input
@@ -1427,13 +1547,13 @@ export default function CatalogManagement({ categories, initialProducts, initial
                             placeholder="19500"
                             value={v.salePrice}
                             onChange={e => handleVariantFieldChange(idx, 'salePrice', Number(e.target.value))}
-                            className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand font-bold text-brand"
+                            className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)] font-bold text-[var(--accent-primary)]"
                           />
                         </div>
 
                         {/* Вес */}
                         <div>
-                          <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider mb-1">
+                          <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
                             Вес (кг)
                           </label>
                           <input
@@ -1442,13 +1562,13 @@ export default function CatalogManagement({ categories, initialProducts, initial
                             placeholder="25"
                             value={v.weight || ''}
                             onChange={e => handleVariantFieldChange(idx, 'weight', e.target.value)}
-                            className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand"
+                            className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)]"
                           />
                         </div>
 
                         {/* Объем */}
                         <div>
-                          <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider mb-1">
+                          <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
                             Объем (м³)
                           </label>
                           <input
@@ -1457,7 +1577,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
                             placeholder="0.15"
                             value={v.volume || ''}
                             onChange={e => handleVariantFieldChange(idx, 'volume', e.target.value)}
-                            className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand"
+                            className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)]"
                           />
                         </div>
                       </div>
@@ -1467,18 +1587,18 @@ export default function CatalogManagement({ categories, initialProducts, initial
               </div>
 
               {/* Подвал формы */}
-              <div className="flex justify-end gap-3 pt-6 border-t border-border-main shrink-0">
+              <div className="flex justify-end gap-3 pt-6 border-t border-[var(--border-primary)] shrink-0">
                 <button
                   type="button"
                   onClick={() => setAddModalOpen(false)}
-                  className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-btn transition-colors cursor-pointer"
+                  className="erp-button-secondary min-h-10 !rounded-xl px-4"
                 >
                   Отмена
                 </button>
                 <button
                   type="submit"
                   disabled={loading === 'create'}
-                  className="px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-btn text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-50"
+                  className="erp-button-primary min-h-10 !rounded-xl px-5 disabled:opacity-50"
                 >
                   {loading === 'create' ? 'Создание...' : 'Добавить модель'}
                 </button>
@@ -1490,16 +1610,18 @@ export default function CatalogManagement({ categories, initialProducts, initial
 
       {/* Модальное окно: Редактирование модели */}
       {editProduct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-sm">
-          <div className="relative w-full max-w-5xl bg-white border border-border-main rounded-card shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex h-14 items-center justify-between border-b border-border-main px-6 shrink-0">
-              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                <Pencil className="h-4.5 w-4.5 text-brand" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[2px]">
+          <div role="dialog" aria-modal="true" aria-labelledby="edit-model-title" className="relative flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-[20px] border border-[var(--border-primary)] bg-[var(--bg-surface)] shadow-[0_24px_80px_rgba(15,23,42,0.18)]">
+            <div className="flex h-16 shrink-0 items-center justify-between border-b border-[var(--border-primary)] px-6">
+              <h3 id="edit-model-title" className="flex items-center gap-2.5 text-sm font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+                  <Pencil className="h-4 w-4" strokeWidth={1.8} />
+                </span>
                 Редактирование модели: {editProduct.name}
               </h3>
               <button
                 onClick={() => setEditProduct(null)}
-                className="p-1.5 text-slate-400 hover:text-slate-500 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                className="p-1.5 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] rounded-lg hover:bg-[var(--bg-surface-hover)] transition-colors cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1515,35 +1637,35 @@ export default function CatalogManagement({ categories, initialProducts, initial
               {/* Основные параметры */}
               <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
                 <div className="sm:col-span-2">
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Название модели *</label>
+                  <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">Название модели *</label>
                   <input
                     type="text"
                     required
                     placeholder="Например, Стол Версаль"
                     value={formName}
                     onChange={e => setFormName(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-border-main rounded-btn outline-none transition focus:border-brand focus:bg-white"
+                    className="w-full px-3 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:bg-[var(--bg-surface)]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Базовый артикул (Base SKU) *</label>
+                  <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">Базовый артикул (Base SKU) *</label>
                   <input
                     type="text"
                     required
                     placeholder="Например, T-VERS"
                     value={formBaseSku}
                     onChange={e => handleBaseSkuChange(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-border-main rounded-btn outline-none transition focus:border-brand focus:bg-white uppercase font-mono"
+                    className="w-full px-3 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:bg-[var(--bg-surface)] uppercase font-mono"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Категория мебели *</label>
+                  <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">Категория мебели *</label>
                   <select
                     value={formCategoryId}
                     onChange={e => handleCategoryChange(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-border-main rounded-btn outline-none transition focus:border-brand focus:bg-white cursor-pointer"
+                    className="w-full px-3 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:bg-[var(--bg-surface)] cursor-pointer"
                   >
                     {categories.map(cat => (
                       <option key={cat.id} value={cat.id}>{cat.name}</option>
@@ -1554,11 +1676,11 @@ export default function CatalogManagement({ categories, initialProducts, initial
                 {/* Выбор папки для столов и комплектов */}
                 {formSupportsFolders && (
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Папка в каталоге</label>
+                    <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">Папка в каталоге</label>
                     <select
                       value={formFolderId}
                       onChange={e => setFormFolderId(e.target.value)}
-                      className="w-full px-3 py-2 text-xs bg-slate-50 border border-border-main rounded-btn outline-none transition focus:border-brand focus:bg-white cursor-pointer font-bold text-brand"
+                      className="w-full px-3 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:bg-[var(--bg-surface)] cursor-pointer font-bold text-[var(--accent-primary)]"
                     >
                       <option value="">Без папки (в корне)</option>
                       {getFolderOptions(formCategoryId).map(f => (
@@ -1569,22 +1691,22 @@ export default function CatalogManagement({ categories, initialProducts, initial
                 )}
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Ед. измерения</label>
+                  <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">Ед. измерения</label>
                   <input
                     type="text"
                     required
                     value={formUnit}
                     onChange={e => setFormUnit(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-border-main rounded-btn outline-none transition focus:border-brand focus:bg-white"
+                    className="w-full px-3 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:bg-[var(--bg-surface)]"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Учет остатков</label>
+                  <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">Учет остатков</label>
                   <select
                     value={formTrackInventory ? 'true' : 'false'}
                     onChange={e => setFormTrackInventory(e.target.value === 'true')}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-border-main rounded-btn outline-none transition focus:border-brand focus:bg-white cursor-pointer"
+                    className="w-full px-3 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:bg-[var(--bg-surface)] cursor-pointer"
                   >
                     <option value="true">Да, отслеживать</option>
                     <option value="false">Нет, виртуальный товар</option>
@@ -1592,34 +1714,34 @@ export default function CatalogManagement({ categories, initialProducts, initial
                 </div>
 
                 <div className="sm:col-span-2 md:col-span-3">
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Описание модели</label>
+                  <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">Описание модели</label>
                   <textarea
                     rows={2}
                     value={formDescription}
                     onChange={e => setFormDescription(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-border-main rounded-btn outline-none transition focus:border-brand focus:bg-white resize-none"
+                    className="w-full px-3 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-xl outline-none transition focus:border-[var(--accent-primary)] focus:bg-[var(--bg-surface)] resize-none"
                   />
                 </div>
               </div>
 
               {/* Блок добавления артикулов */}
               <div className="space-y-4">
-                <div className="flex items-center justify-between border-t border-border-main pt-6">
-                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                    <Layers className="h-4.5 w-4.5 text-brand" />
+                <div className="flex items-center justify-between border-t border-[var(--border-primary)] pt-6">
+                  <h4 className="text-xs font-semibold text-[var(--text-primary)] flex items-center gap-2">
+                    <Layers className="h-4.5 w-4.5 text-[var(--accent-primary)]" />
                     Модификации и артикулы модели
                   </h4>
                   <button
                     type="button"
                     onClick={addVariantRow}
-                    className="inline-flex items-center gap-1 bg-brand hover:bg-brand-hover text-white text-[10px] font-bold uppercase tracking-wider px-3.5 py-2 rounded-btn transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1 bg-brand hover:bg-brand-hover text-white text-[10px] font-bold uppercase tracking-wider px-3.5 py-2 rounded-xl transition-colors cursor-pointer"
                   >
                     <Plus className="h-3.5 w-3.5" /> Добавить модификацию
                   </button>
                 </div>
 
                 {variantsList.length === 0 ? (
-                  <div className="text-center py-6 text-slate-400 text-xs border border-dashed border-border-main rounded-[16px]">
+                  <div className="text-center py-6 text-[var(--text-tertiary)] text-xs border border-dashed border-[var(--border-primary)] rounded-[16px]">
                     Нажмите «Добавить модификацию», чтобы создать артикулы для этой модели
                   </div>
                 ) : (
@@ -1627,21 +1749,21 @@ export default function CatalogManagement({ categories, initialProducts, initial
                     {variantsList.map((v, idx) => (
                       <div 
                         key={idx} 
-                        className="relative p-5 bg-slate-50/50 border border-border-main rounded-[16px] grid gap-4 sm:grid-cols-2 md:grid-cols-4 items-end"
+                        className="relative p-5 bg-[var(--bg-surface-hover)]/55 border border-[var(--border-primary)] rounded-[16px] grid gap-4 sm:grid-cols-2 md:grid-cols-4 items-end"
                       >
                         {variantsList.length > 1 && (
                           <button
                             type="button"
                             onClick={() => removeVariantRow(idx)}
-                            className="absolute -top-2.5 -right-2.5 p-1 bg-white border border-border-main hover:text-red-650 rounded-full shadow-sm cursor-pointer"
+                            className="absolute -top-2.5 -right-2.5 p-1 bg-[var(--bg-surface)] border border-[var(--border-primary)] hover:text-red-650 rounded-full shadow-sm cursor-pointer"
                           >
-                            <X className="h-3.5 w-3.5 text-slate-400 hover:text-red-500" />
+                            <X className="h-3.5 w-3.5 text-[var(--text-tertiary)] hover:text-red-500" />
                           </button>
                         )}
 
                         {/* Артикул */}
                         <div className="sm:col-span-2">
-                          <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider mb-1">
+                          <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
                             Артикул (SKU)
                           </label>
                           <input
@@ -1650,23 +1772,23 @@ export default function CatalogManagement({ categories, initialProducts, initial
                             placeholder="Автогенерация"
                             value={v.sku}
                             onChange={e => handleVariantFieldChange(idx, 'sku', e.target.value)}
-                            className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand font-mono font-bold"
+                            className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)] font-mono font-bold"
                           />
                         </div>
 
                         {/* Выбор стола и стула для комплекта */}
                         {selectedCategorySlug === 'sets' && (
-                          <div className="sm:col-span-2 md:col-span-4 grid gap-4 sm:grid-cols-2 md:grid-cols-3 bg-white p-4 rounded-xl border border-border-main mb-2">
+                          <div className="sm:col-span-2 md:col-span-4 grid gap-4 sm:grid-cols-2 md:grid-cols-3 bg-[var(--bg-surface)] p-4 rounded-xl border border-[var(--border-primary)] mb-2">
                             {/* Стол */}
                             <div className="space-y-1">
-                              <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider">
+                              <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider">
                                 Стол из каталога
                               </label>
                               {v.attributes?.tableVariantId ? (
-                                <div className="flex items-center justify-between gap-2 p-2 bg-slate-50 border border-border-main rounded-lg text-xs">
+                                <div className="flex items-center justify-between gap-2 p-2 bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-lg text-xs">
                                   <div className="min-w-0">
-                                    <p className="font-bold text-slate-800 truncate">{v.attributes.tableName}</p>
-                                    <p className="text-[10px] text-slate-400 font-medium">
+                                    <p className="font-bold text-[var(--text-primary)] truncate">{v.attributes.tableName}</p>
+                                    <p className="text-[10px] text-[var(--text-tertiary)] font-medium">
                                       {v.attributes.tableSize} | {v.attributes.tableColor} | {v.attributes.tablePattern}
                                     </p>
                                   </div>
@@ -1678,7 +1800,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
                                       setSetsSelectSearch(v.color || '')
                                       setSetsSelectOpen(true)
                                     }}
-                                    className="p-1 text-slate-400 hover:text-brand hover:bg-white rounded border border-transparent hover:border-border-main transition-all cursor-pointer shrink-0"
+                                    className="p-1 text-[var(--text-tertiary)] hover:text-[var(--accent-primary)] hover:bg-[var(--bg-surface)] rounded border border-transparent hover:border-[var(--border-primary)] transition-all cursor-pointer shrink-0"
                                   >
                                     <Pencil className="h-3.5 w-3.5" />
                                   </button>
@@ -1692,7 +1814,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
                                     setSetsSelectSearch(v.color || '')
                                     setSetsSelectOpen(true)
                                   }}
-                                  className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 bg-brand/5 hover:bg-brand/10 border border-dashed border-brand/20 hover:border-brand/40 text-brand text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                                  className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 bg-brand/5 hover:bg-brand/10 border border-dashed border-brand/20 hover:border-brand/40 text-[var(--accent-primary)] text-xs font-bold rounded-lg transition-colors cursor-pointer"
                                 >
                                   <Plus className="h-4 w-4" /> Выбрать стол
                                 </button>
@@ -1701,14 +1823,14 @@ export default function CatalogManagement({ categories, initialProducts, initial
 
                             {/* Стул */}
                             <div className="space-y-1">
-                              <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider">
+                              <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider">
                                 Стул из каталога
                               </label>
                               {v.attributes?.chairVariantId ? (
-                                <div className="flex items-center justify-between gap-2 p-2 bg-slate-50 border border-border-main rounded-lg text-xs">
+                                <div className="flex items-center justify-between gap-2 p-2 bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-lg text-xs">
                                   <div className="min-w-0">
-                                    <p className="font-bold text-slate-800 truncate">{v.attributes.chairName}</p>
-                                    <p className="text-[10px] text-slate-400 font-medium">{v.attributes.chairColor}</p>
+                                    <p className="font-bold text-[var(--text-primary)] truncate">{v.attributes.chairName}</p>
+                                    <p className="text-[10px] text-[var(--text-tertiary)] font-medium">{v.attributes.chairColor}</p>
                                   </div>
                                   <button
                                     type="button"
@@ -1718,7 +1840,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
                                       setSetsSelectSearch(v.color || '')
                                       setSetsSelectOpen(true)
                                     }}
-                                    className="p-1 text-slate-400 hover:text-brand hover:bg-white rounded border border-transparent hover:border-border-main transition-all cursor-pointer shrink-0"
+                                    className="p-1 text-[var(--text-tertiary)] hover:text-[var(--accent-primary)] hover:bg-[var(--bg-surface)] rounded border border-transparent hover:border-[var(--border-primary)] transition-all cursor-pointer shrink-0"
                                   >
                                     <Pencil className="h-3.5 w-3.5" />
                                   </button>
@@ -1732,7 +1854,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
                                     setSetsSelectSearch(v.color || '')
                                     setSetsSelectOpen(true)
                                   }}
-                                  className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 bg-brand/5 hover:bg-brand/10 border border-dashed border-brand/20 hover:border-brand/40 text-brand text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                                  className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 bg-brand/5 hover:bg-brand/10 border border-dashed border-brand/20 hover:border-brand/40 text-[var(--accent-primary)] text-xs font-bold rounded-lg transition-colors cursor-pointer"
                                 >
                                   <Plus className="h-4 w-4" /> Выбрать стул
                                 </button>
@@ -1741,7 +1863,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
 
                             {/* Количество стульев */}
                             <div className="space-y-1">
-                              <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider">
+                              <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider">
                                 Количество стульев
                               </label>
                               <div className="flex items-center gap-2">
@@ -1753,9 +1875,9 @@ export default function CatalogManagement({ categories, initialProducts, initial
                                   disabled={!v.attributes?.chairVariantId}
                                   value={v.attributes?.chairQuantity || 6}
                                   onChange={e => handleVariantFieldChange(idx, 'chairQuantity', e.target.value)}
-                                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-border-main rounded-lg outline-none focus:border-brand disabled:opacity-50 text-slate-700 font-bold"
+                                  className="w-full px-3 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-lg outline-none focus:border-[var(--accent-primary)] disabled:opacity-50 text-[var(--text-secondary)] font-bold"
                                 />
-                                <span className="text-xs text-slate-400 font-medium shrink-0">шт</span>
+                                <span className="text-xs text-[var(--text-tertiary)] font-medium shrink-0">шт</span>
                               </div>
                             </div>
                           </div>
@@ -1764,14 +1886,14 @@ export default function CatalogManagement({ categories, initialProducts, initial
                         {/* Размер */}
                         {selectedCategorySlug !== 'chairs' && selectedCategorySlug !== 'sofas' && selectedCategorySlug !== 'sets' && (
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider mb-1">
+                            <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
                               Размер
                             </label>
                             {selectedCategorySlug === 'tables' ? (
                               <select
                                 value={v.size}
                                 onChange={e => handleVariantFieldChange(idx, 'size', e.target.value)}
-                                className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand cursor-pointer font-bold text-slate-700"
+                                className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)] cursor-pointer font-bold text-[var(--text-secondary)]"
                               >
                                 <option value="120/160x80">120/160 80</option>
                                 <option value="140/180x85">140/180 85</option>
@@ -1785,7 +1907,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
                                 placeholder="120/160x80"
                                 value={v.size}
                                 onChange={e => handleVariantFieldChange(idx, 'size', e.target.value)}
-                                className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand"
+                                className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)]"
                               />
                             )}
                           </div>
@@ -1794,13 +1916,13 @@ export default function CatalogManagement({ categories, initialProducts, initial
                         {/* Цвет */}
                         {selectedCategorySlug !== 'sofas' && (
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider mb-1">
+                            <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
                               Цвет патины / каркаса
                             </label>
                             <select
                               value={v.color}
                               onChange={e => handleVariantFieldChange(idx, 'color', e.target.value)}
-                              className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand cursor-pointer"
+                              className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)] cursor-pointer"
                             >
                               {COLORS.map(c => (
                                 <option key={c} value={c}>{c}</option>
@@ -1812,13 +1934,13 @@ export default function CatalogManagement({ categories, initialProducts, initial
                         {/* Узор (для всех кроме стульев и диванов) */}
                         {selectedCategorySlug !== 'chairs' && selectedCategorySlug !== 'sofas' && (
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider mb-1">
+                            <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
                               Узор
                             </label>
                             <select
                               value={v.thickness}
                               onChange={e => handleVariantFieldChange(idx, 'thickness', e.target.value)}
-                              className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand cursor-pointer"
+                              className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)] cursor-pointer"
                             >
                               {PATTERNS.map(p => (
                                 <option key={p} value={p}>{p}</option>
@@ -1829,7 +1951,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
 
                         {/* Закупка */}
                         <div>
-                          <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider mb-1">
+                          <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
                             Закупка (₽)
                           </label>
                           <input
@@ -1839,13 +1961,13 @@ export default function CatalogManagement({ categories, initialProducts, initial
                             placeholder="12000"
                             value={v.purchasePrice}
                             onChange={e => handleVariantFieldChange(idx, 'purchasePrice', Number(e.target.value))}
-                            className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand"
+                            className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)]"
                           />
                         </div>
 
                         {/* Розничная цена */}
                         <div>
-                          <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider mb-1">
+                          <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
                             Продажа (₽) *
                           </label>
                           <input
@@ -1855,13 +1977,13 @@ export default function CatalogManagement({ categories, initialProducts, initial
                             placeholder="19500"
                             value={v.salePrice}
                             onChange={e => handleVariantFieldChange(idx, 'salePrice', Number(e.target.value))}
-                            className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand font-bold text-brand"
+                            className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)] font-bold text-[var(--accent-primary)]"
                           />
                         </div>
 
                         {/* Вес */}
                         <div>
-                          <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider mb-1">
+                          <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
                             Вес (кг)
                           </label>
                           <input
@@ -1870,13 +1992,13 @@ export default function CatalogManagement({ categories, initialProducts, initial
                             placeholder="25"
                             value={v.weight || ''}
                             onChange={e => handleVariantFieldChange(idx, 'weight', e.target.value)}
-                            className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand"
+                            className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)]"
                           />
                         </div>
 
                         {/* Объем */}
                         <div>
-                          <label className="block text-[10px] font-bold text-slate-455 uppercase tracking-wider mb-1">
+                          <label className="block text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
                             Объем (м³)
                           </label>
                           <input
@@ -1885,7 +2007,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
                             placeholder="0.15"
                             value={v.volume || ''}
                             onChange={e => handleVariantFieldChange(idx, 'volume', e.target.value)}
-                            className="w-full px-3 py-2 text-xs bg-white border border-border-main rounded-btn outline-none focus:border-brand"
+                            className="w-full px-3 py-2 text-xs bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl outline-none focus:border-[var(--accent-primary)]"
                           />
                         </div>
                       </div>
@@ -1895,18 +2017,18 @@ export default function CatalogManagement({ categories, initialProducts, initial
               </div>
 
               {/* Подвал формы */}
-              <div className="flex justify-end gap-3 pt-6 border-t border-border-main shrink-0">
+              <div className="flex justify-end gap-3 pt-6 border-t border-[var(--border-primary)] shrink-0">
                 <button
                   type="button"
                   onClick={() => setEditProduct(null)}
-                  className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-btn transition-colors cursor-pointer"
+                  className="erp-button-secondary min-h-10 !rounded-xl px-4"
                 >
                   Отмена
                 </button>
                 <button
                   type="submit"
                   disabled={loading === 'edit'}
-                  className="px-5 py-2 bg-brand hover:bg-brand-hover text-white rounded-btn text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-50"
+                  className="erp-button-primary min-h-10 !rounded-xl px-5 disabled:opacity-50"
                 >
                   {loading === 'edit' ? 'Сохранение...' : 'Сохранить изменения'}
                 </button>
@@ -1961,11 +2083,11 @@ export default function CatalogManagement({ categories, initialProducts, initial
 
         return (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-sm">
-            <div className="relative w-full max-w-4xl bg-white border border-border-main rounded-card shadow-xl overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="relative w-full max-w-4xl bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-card shadow-xl overflow-hidden flex flex-col max-h-[85vh]">
               {/* Шапка */}
-              <div className="flex h-14 items-center justify-between border-b border-border-main px-6 shrink-0 bg-slate-50/50">
-                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
-                  <Grid className="h-4.5 w-4.5 text-brand" />
+              <div className="flex h-14 items-center justify-between border-b border-[var(--border-primary)] px-6 shrink-0 bg-[var(--bg-surface-hover)]/55">
+                <h3 className="text-xs font-semibold text-[var(--text-primary)] flex items-center gap-2">
+                  <Grid className="h-4.5 w-4.5 text-[var(--accent-primary)]" />
                   {setsSelectType === 'table' ? 'Выбор стола из каталога' : 'Выбор стула из каталога'}
                 </h3>
                 <button
@@ -1976,22 +2098,22 @@ export default function CatalogManagement({ categories, initialProducts, initial
                     setSetsSelectSearch('');
                     setSetsSelectFolderId(null);
                   }}
-                  className="p-1.5 text-slate-400 hover:text-slate-500 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                  className="p-1.5 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] rounded-lg hover:bg-[var(--bg-surface-hover)] transition-colors cursor-pointer"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
 
               {/* Поисковая строка */}
-              <div className="p-4 border-b border-border-main bg-white shrink-0">
+              <div className="p-4 border-b border-[var(--border-primary)] bg-[var(--bg-surface)] shrink-0">
                 <div className="relative">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none z-10" />
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--text-tertiary)] pointer-events-none z-10" />
                   <input
                     type="text"
                     placeholder="Поиск по названию модели, артикулу, размеру или цвету..."
                     value={setsSelectSearch}
                     onChange={e => setSetsSelectSearch(e.target.value)}
-                    className="w-full !pl-10 pr-4 py-2 text-xs bg-slate-50 border border-border-main rounded-btn text-slate-850 placeholder-slate-400 outline-none transition focus:border-brand focus:bg-white"
+                    className="w-full !pl-10 pr-4 py-2 text-xs bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] rounded-xl text-slate-850 placeholder-slate-400 outline-none transition focus:border-[var(--accent-primary)] focus:bg-[var(--bg-surface)]"
                   />
                 </div>
               </div>
@@ -2001,9 +2123,9 @@ export default function CatalogManagement({ categories, initialProducts, initial
                 {isSearching ? (
                   // Результаты поиска
                   <div className="space-y-4">
-                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Результаты поиска ({matchedVariants.length})</h4>
+                    <h4 className="text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider">Результаты поиска ({matchedVariants.length})</h4>
                     {matchedVariants.length === 0 ? (
-                      <div className="text-center py-12 text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                      <div className="text-center py-12 text-[var(--text-tertiary)] text-xs font-semibold uppercase tracking-wider">
                         Ничего не найдено
                       </div>
                     ) : (
@@ -2020,15 +2142,15 @@ export default function CatalogManagement({ categories, initialProducts, initial
                             <div
                               key={variant.id}
                               onClick={() => handleSelectSetComponent(variant, product)}
-                              className="p-4 bg-white border border-border-main hover:border-brand/40 hover:shadow-sm rounded-xl cursor-pointer transition-all flex flex-col justify-between"
+                              className="p-4 bg-[var(--bg-surface)] border border-[var(--border-primary)] hover:border-brand/40 hover:shadow-sm rounded-xl cursor-pointer transition-all flex flex-col justify-between"
                             >
                               <div>
-                                <h5 className="font-bold text-xs text-slate-800">{product.name}</h5>
-                                <p className="text-[10px] font-mono text-slate-400 font-bold mt-0.5">{variant.sku}</p>
-                                <p className="text-[10px] text-slate-500 font-medium mt-1">{desc || 'Базовый вариант'}</p>
+                                <h5 className="font-bold text-xs text-[var(--text-primary)]">{product.name}</h5>
+                                <p className="text-[10px] font-mono text-[var(--text-tertiary)] font-bold mt-0.5">{variant.sku}</p>
+                                <p className="text-[10px] text-[var(--text-secondary)] font-medium mt-1">{desc || 'Базовый вариант'}</p>
                               </div>
-                              <div className="mt-3 pt-2 border-t border-slate-55 bg-slate-50/50 rounded p-1.5 text-right">
-                                <span className="text-[10px] font-bold text-brand uppercase tracking-wider">Выбрать</span>
+                              <div className="mt-3 pt-2 border-t border-slate-55 bg-[var(--bg-surface-hover)]/55 rounded p-1.5 text-right">
+                                <span className="text-[10px] font-bold text-[var(--accent-primary)] uppercase tracking-wider">Выбрать</span>
                               </div>
                             </div>
                           );
@@ -2040,11 +2162,11 @@ export default function CatalogManagement({ categories, initialProducts, initial
                   // Навигация по каталогу (папки и товары)
                   <div className="space-y-6">
                     {/* Хлебные крошки */}
-                    <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider">
                       <button
                         type="button"
                         onClick={() => setSetsSelectFolderId(null)}
-                        className="hover:text-brand transition-colors cursor-pointer"
+                        className="hover:text-[var(--accent-primary)] transition-colors cursor-pointer"
                       >
                         {targetCategory.name}
                       </button>
@@ -2054,7 +2176,7 @@ export default function CatalogManagement({ categories, initialProducts, initial
                           <button
                             type="button"
                             onClick={() => setSetsSelectFolderId(crumb.id)}
-                            className="hover:text-brand transition-colors cursor-pointer"
+                            className="hover:text-[var(--accent-primary)] transition-colors cursor-pointer"
                           >
                             {crumb.name}
                           </button>
@@ -2065,16 +2187,16 @@ export default function CatalogManagement({ categories, initialProducts, initial
                     {/* Папки */}
                     {activeFolders.length > 0 && (
                       <div className="space-y-2">
-                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Папки</h4>
+                        <h4 className="text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider">Папки</h4>
                         <div className="grid gap-3 grid-cols-2 sm:grid-cols-3">
                           {activeFolders.map(f => (
                             <div
                               key={f.id}
                               onClick={() => setSetsSelectFolderId(f.id)}
-                              className="p-4 bg-slate-50 border border-border-main hover:border-brand/40 hover:bg-white rounded-xl cursor-pointer transition-all flex items-center gap-3"
+                              className="p-4 bg-[var(--bg-surface-hover)] border border-[var(--border-primary)] hover:border-brand/40 hover:bg-[var(--bg-surface)] rounded-xl cursor-pointer transition-all flex items-center gap-3"
                             >
-                              <Folder className="h-5 w-5 text-brand/70" />
-                              <span className="font-bold text-xs text-slate-800 truncate">{f.name}</span>
+                              <Folder className="h-5 w-5 text-[var(--accent-primary)]/70" />
+                              <span className="font-bold text-xs text-[var(--text-primary)] truncate">{f.name}</span>
                             </div>
                           ))}
                         </div>
@@ -2083,18 +2205,18 @@ export default function CatalogManagement({ categories, initialProducts, initial
 
                     {/* Товары */}
                     <div className="space-y-4">
-                      <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Модели</h4>
+                      <h4 className="text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider">Модели</h4>
                       {activeProducts.length === 0 ? (
-                        <div className="text-center py-12 text-slate-400 text-xs font-semibold uppercase tracking-wider border border-dashed border-border-main rounded-xl">
+                        <div className="text-center py-12 text-[var(--text-tertiary)] text-xs font-semibold uppercase tracking-wider border border-dashed border-[var(--border-primary)] rounded-xl">
                           В этой папке нет товаров
                         </div>
                       ) : (
                         <div className="space-y-4">
                           {activeProducts.map(p => (
-                            <div key={p.id} className="border border-border-main rounded-xl overflow-hidden bg-white">
-                              <div className="bg-slate-50/50 px-4 py-2 border-b border-border-main flex items-center justify-between">
+                            <div key={p.id} className="border border-[var(--border-primary)] rounded-xl overflow-hidden bg-[var(--bg-surface)]">
+                              <div className="bg-[var(--bg-surface-hover)]/55 px-4 py-2 border-b border-[var(--border-primary)] flex items-center justify-between">
                                 <span className="font-bold text-xs text-slate-850">{p.name}</span>
-                                <span className="text-[9px] font-bold text-slate-400 uppercase font-mono">{p.baseSku}</span>
+                                <span className="text-[9px] font-bold text-[var(--text-tertiary)] uppercase font-mono">{p.baseSku}</span>
                               </div>
                               <div className="p-3 divide-y divide-slate-100">
                                 {p.variants.map(v => {
@@ -2109,13 +2231,13 @@ export default function CatalogManagement({ categories, initialProducts, initial
                                     <div
                                       key={v.id}
                                       onClick={() => handleSelectSetComponent(v, p)}
-                                      className="py-2.5 px-3 hover:bg-slate-50 flex items-center justify-between text-xs cursor-pointer transition-colors"
+                                      className="py-2.5 px-3 hover:bg-[var(--bg-surface-hover)] flex items-center justify-between text-xs cursor-pointer transition-colors"
                                     >
                                       <div>
-                                        <p className="font-mono font-bold text-slate-800">{v.sku}</p>
-                                        <p className="text-[10px] text-slate-455 font-medium mt-0.5">{desc || 'Базовый вариант'}</p>
+                                        <p className="font-mono font-bold text-[var(--text-primary)]">{v.sku}</p>
+                                        <p className="text-[10px] text-[var(--text-tertiary)] font-medium mt-0.5">{desc || 'Базовый вариант'}</p>
                                       </div>
-                                      <span className="text-[10px] font-bold text-brand uppercase tracking-wider">Выбрать</span>
+                                      <span className="text-[10px] font-bold text-[var(--accent-primary)] uppercase tracking-wider">Выбрать</span>
                                     </div>
                                   );
                                 })}

@@ -1,43 +1,29 @@
 'use server'
 
 import prisma from '@/lib/prisma'
-import { createClient } from '@/utils/supabase/server'
-import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { randomUUID } from 'crypto'
+import bcrypt from 'bcryptjs'
 import { sendOrderDeliveredTelegramNotification } from '@/utils/telegram'
+import { requireRole } from '@/lib/auth/dal'
+import { validatePassword } from '@/lib/auth/password'
+import { defaultPermissionsForRole } from '@/lib/auth/permissions'
 
 async function checkLogisticianOrAbove() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const profile = await prisma.profile.findUnique({
-    where: { id: user.id },
-  })
-
-  if (!profile || !profile.isActive || !['admin', 'owner', 'manager', 'logistician'].includes(profile.role)) {
-    redirect('/unauthorized')
-  }
-
-  return user.id
+  const profile = await requireRole(['admin', 'owner', 'manager', 'logistician'])
+  return profile.id
 }
 
 async function checkAdminOrOwner() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const profile = await prisma.profile.findUnique({
-    where: { id: user.id },
-  })
-
-  if (!profile || !profile.isActive || !['admin', 'owner'].includes(profile.role)) {
-    throw new Error('Недостаточно прав')
-  }
+  return requireRole(['admin', 'owner'])
 }
 
-export async function createDriverAction(fullName: string, phone: string, direction?: string | null) {
+export async function createDriverAction(
+  fullName: string,
+  phone: string,
+  direction: string | null | undefined,
+  password: string
+) {
   try {
     await checkAdminOrOwner()
 
@@ -45,29 +31,25 @@ export async function createDriverAction(fullName: string, phone: string, direct
       return { error: 'ФИО и телефон обязательны' }
     }
 
+    const passwordError = validatePassword(password)
+    if (passwordError) return { error: passwordError }
+
     const uuid = randomUUID()
     const email = `driver-${uuid.slice(0, 8)}@sulak.ru`
-    const metaDataStr = JSON.stringify({ full_name: fullName.trim(), role: 'driver' })
+    const passwordHash = await bcrypt.hash(password, 12)
 
-    await prisma.$transaction(async (tx) => {
-      // 1. Создаем пользователя в auth.users через сырой SQL, чтобы удовлетворить внешний ключ profiles_id_fkey
-      await tx.$executeRawUnsafe(
-        `INSERT INTO auth.users (id, email, aud, role, is_sso_user, is_anonymous, email_confirmed_at, raw_user_meta_data)
-         VALUES ($1::uuid, $2, 'authenticated', 'authenticated', false, false, now(), $3::jsonb)`,
-        uuid,
+    await prisma.profile.create({
+      data: {
+        id: uuid,
         email,
-        metaDataStr
-      )
-
-      // 2. Поскольку триггер on_auth_user_created в Supabase автоматически создает профиль,
-      // мы просто обновляем его, добавляя номер телефона и направление.
-      await tx.profile.update({
-        where: { id: uuid },
-        data: {
-          phone: phone.trim(),
-          direction: direction && direction.trim() ? direction.trim() : null,
-        },
-      })
+        fullName: fullName.trim(),
+        phone: phone.trim(),
+        role: 'driver',
+        direction: direction?.trim() || null,
+        passwordHash,
+        permissions: defaultPermissionsForRole('driver'),
+        isActive: true,
+      },
     })
 
     revalidatePath('/drivers')

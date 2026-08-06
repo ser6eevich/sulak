@@ -2,7 +2,6 @@ import prisma from '@/lib/prisma'
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import LogisticianDashboardClient from './LogisticianDashboardClient'
-import { Truck } from 'lucide-react'
 import { checkAndSendDeliveryAlerts } from './actions'
 
 export const dynamic = 'force-dynamic'
@@ -81,17 +80,14 @@ export default async function LogisticianDashboard() {
   })
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-[var(--text-primary)] flex items-center gap-2">
-            <Truck className="h-5 w-5 text-[var(--accent-primary)]" />
-            Управление логистикой и рейсами
-          </h1>
-          <p className="text-xs font-normal text-[var(--text-secondary)] mt-1">
-            Контроль статусов заказов в пути, назначение экипажей водителей и отслеживание сроков доставки
-          </p>
-        </div>
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-[-0.035em] text-[var(--text-primary)]">
+          Логистика
+        </h1>
+        <p className="mt-1 text-xs font-normal text-[var(--text-secondary)]">
+          Заказы в пути, назначения водителей и управление доставкой
+        </p>
       </div>
 
       <LogisticianDashboardClient orders={orders} drivers={drivers} />

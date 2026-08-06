@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { 
   createOrderAction, 
   updateOrderAction,
@@ -30,14 +31,12 @@ import {
   Folder,
   ChevronRight,
   Eye,
-  RefreshCw,
   Paperclip,
   Clipboard,
   Pencil,
   Sparkles,
   CheckCircle2,
   Truck,
-  Check
 } from 'lucide-react'
 
 // Интерфейсы типов из Prisma
@@ -162,6 +161,13 @@ interface OrderManagementProps {
   drivers: { id: string; fullName: string }[]
   sellers: { id: string; fullName: string }[]
   currentUserId: string
+  initialQuery: string
+  initialStatus: string
+  page: number
+  pageSize: number
+  totalPages: number
+  totalOrders: number
+  summary: { active: number; delivered: number; revenue: number; statuses: Record<string, number> }
 }
 
 // Статусы выполнения заказа — цвета определяются через CSS-токены (.erp-badge[data-status])
@@ -176,6 +182,17 @@ const STATUSES: Record<string, { label: string }> = {
   cancelled: { label: 'Отменен' },
 }
 
+const STAGE_LABELS: Record<string, string> = {
+  pending: 'Новые',
+  confirmed: 'Подтверждены',
+  production: 'В производстве',
+  warehouse: 'На складе',
+  awaiting_delivery: 'Ждут доставку',
+  delivery: 'В доставке',
+  delivered: 'Доставлены',
+  cancelled: 'Отменены',
+}
+
 export default function OrderManagement({ 
   initialOrders, 
   products,
@@ -184,18 +201,43 @@ export default function OrderManagement({
   userRole,
   drivers,
   sellers,
-  currentUserId
+  currentUserId,
+  initialQuery,
+  initialStatus,
+  page: currentPage,
+  pageSize: ordersPerPage,
+  totalPages,
+  totalOrders,
+  summary,
 }: OrderManagementProps) {
   const router = useRouter()
   const [orders, setOrders] = useState<Order[]>(initialOrders)
+  const [search, setSearch] = useState(initialQuery)
+  const [statusFilter, setStatusFilter] = useState(initialStatus)
+  const [loading, setLoading] = useState<string | null>(null)
 
   useEffect(() => {
-    setOrders(initialOrders)
+    const timeoutId = window.setTimeout(() => setOrders(initialOrders), 0)
+    return () => window.clearTimeout(timeoutId)
   }, [initialOrders])
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [loading, setLoading] = useState<string | null>(null)
-  const [ordersPerPage, setOrdersPerPage] = useState(20)
+
+  function navigateList(next: { query?: string; status?: string; page?: number; pageSize?: number }) {
+    const params = new URLSearchParams(window.location.search)
+    const nextQuery = next.query ?? search
+    const nextStatus = next.status ?? statusFilter
+    const nextPage = next.page ?? currentPage
+    const nextPageSize = next.pageSize ?? ordersPerPage
+
+    if (nextQuery) params.set('q', nextQuery)
+    else params.delete('q')
+    if (nextStatus !== 'all') params.set('status', nextStatus)
+    else params.delete('status')
+    if (nextPage > 1) params.set('page', String(nextPage))
+    else params.delete('page')
+    if (nextPageSize !== 20) params.set('pageSize', String(nextPageSize))
+    else params.delete('pageSize')
+    router.push(`/orders${params.size ? `?${params.toString()}` : ''}`)
+  }
 
   // Состояния для модалки деталей заказа
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
@@ -215,7 +257,6 @@ export default function OrderManagement({
   const [createModalOpen, setCreateModalOpen] = useState(false)
   // Целевой subOrderIndex для вставки фото из буфера (для paste-listener fallback)
   const [pasteTargetCreateSubIdx, setPasteTargetCreateSubIdx] = useState<number | null>(null)
-  const [pasteTargetSubOrderIdx, setPasteTargetSubOrderIdx] = useState<number | null>(null)
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null)
   const [sellerId, setSellerId] = useState(currentUserId)
   const [clientPhone, setClientPhone] = useState('')
@@ -373,13 +414,14 @@ export default function OrderManagement({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
+    // Dirty-form dependencies below deliberately mirror handleRequestCloseOrderModal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quickStatusModalOpen, selectingItemIndex, createModalOpen, selectedOrder, clientName, clientPhone, deliveryAddress, comment, editingOrderId, orderItemsList])
   const [errorMsg, setErrorMsg] = useState('')
 
   const [subOrderImages, setSubOrderImages] = useState<Record<number, string[]>>({})
   const [imageUploading, setImageUploading] = useState(false)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
-  const [currentPage, setCurrentPage] = useState(1)
 
   // Яндекс.Диск модальное окно выбора фото
   const [yandexPickerOpen, setYandexPickerOpen] = useState(false)
@@ -422,25 +464,11 @@ export default function OrderManagement({
           }
         }
       }
-      // Просмотр/редактирование заказа
-      if (selectedOrder && pasteTargetSubOrderIdx !== null) {
-        const items = Array.from(e.clipboardData?.items || [])
-        const imageItem = items.find(i => i.type.startsWith('image/'))
-        if (imageItem) {
-          e.preventDefault()
-          const blob = imageItem.getAsFile()
-          if (blob) {
-            const ext = imageItem.type.split('/')[1] || 'png'
-            uploadImageBlob(blob, `clipboard-paste.${ext}`, pasteTargetSubOrderIdx)
-            setPasteTargetSubOrderIdx(null)
-          }
-        }
-      }
     }
 
     window.addEventListener('paste', handleGlobalPaste)
     return () => window.removeEventListener('paste', handleGlobalPaste)
-  }, [createModalOpen, pasteTargetCreateSubIdx, selectedOrder, pasteTargetSubOrderIdx])
+  }, [createModalOpen, pasteTargetCreateSubIdx])
 
   // Живой поиск клиентов по телефону в форме заказа
   useEffect(() => {
@@ -460,7 +488,7 @@ export default function OrderManagement({
   }, [clientPhone])
 
   // Открытие деталей заказа с обновлением URL для возможности прямого перехода по ссылке
-  const openOrderDetails = async (order: Order) => {
+  async function openOrderDetails(order: Order) {
     setSelectedOrder(order)
     setNewStatus(order.status)
     setStatusComment('')
@@ -482,7 +510,7 @@ export default function OrderManagement({
   }
 
   // Закрытие деталей заказа со сбросом URL параметра
-  const closeOrderDetails = () => {
+  function closeOrderDetails() {
     setSelectedOrder(null)
     if (typeof window !== 'undefined') {
       const url = new URL(window.location.href)
@@ -507,7 +535,8 @@ export default function OrderManagement({
       o.id === cleanVal
     )
     if (match) {
-      openOrderDetails(match)
+      const timeoutId = window.setTimeout(() => void openOrderDetails(match), 0)
+      return () => window.clearTimeout(timeoutId)
     }
   }, [orders])
 
@@ -553,7 +582,7 @@ export default function OrderManagement({
   }
 
   // Полный сброс полей формы создания/редактирования заказа
-  const resetOrderForm = () => {
+  function resetOrderForm() {
     setEditingOrderId(null)
     setClientPhone('')
     setClientAdditionalPhone('')
@@ -703,7 +732,7 @@ export default function OrderManagement({
 
   // Загрузка фото при создании заказа (для конкретного подзаказа)
   // Используем fetch + FormData к /api/upload-image, чтобы избежать ограничения Server Actions на размер аргументов
-  const handleCreateImageUpload = async (file: File | Blob, fileName: string, subIdx: number) => {
+  async function handleCreateImageUpload(file: File | Blob, fileName: string, subIdx: number) {
     setImageUploading(true)
     try {
       const formData = new FormData()
@@ -781,113 +810,6 @@ export default function OrderManagement({
       }
     }
     return {}
-  }
-
-  // Загрузка файла/blob для существующего заказа (через FormData, без base64)
-  const uploadImageBlob = async (blob: Blob, fileName: string, subOrderIndex: number | null): Promise<void> => {
-    if (!selectedOrder) return
-    setLoading('image')
-    try {
-      const formData = new FormData()
-      formData.append('file', blob instanceof File ? blob : new File([blob], fileName, { type: blob.type }))
-      const res = await fetch('/api/upload-image', { method: 'POST', body: formData })
-      const uploadData = await res.json()
-      if (!res.ok || uploadData.error) {
-        alert(uploadData.error || 'Ошибка загрузки')
-        setLoading(null)
-        return
-      }
-      if (uploadData.imageUrl) {
-        const updateRes = await updateOrderImageAction(selectedOrder.id, uploadData.imageUrl, subOrderIndex)
-        setLoading(null)
-        if (updateRes.error) {
-          alert(updateRes.error)
-        } else if (updateRes.imageUrl !== undefined) {
-          setSelectedOrder(prev => prev ? { ...prev, imageUrl: updateRes.imageUrl } : null)
-          setOrders(prev => prev.map(o => o.id === selectedOrder.id ? { ...o, imageUrl: updateRes.imageUrl } : o))
-        }
-      }
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Ошибка загрузки')
-      setLoading(null)
-    }
-  }
-
-  // Обновление фото для существующего заказа (без подзаказа — главное фото)
-  const handleUpdateExistingOrderImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!selectedOrder) return
-    const file = e.target.files?.[0]
-    if (!file) return
-    await uploadImageBlob(file, file.name, null)
-  }
-
-  // Загрузка фото конкретного подзаказа
-  const handleSubOrderImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, subOrderIndex: number) => {
-    if (!selectedOrder) return
-    const file = e.target.files?.[0]
-    if (!file) return
-    await uploadImageBlob(file, file.name, subOrderIndex)
-  }
-
-  // Вставка фото из буфера обмена для конкретного подзаказа
-  const handleSubOrderImagePaste = async (subOrderIndex: number) => {
-    if (!selectedOrder) return
-    setPasteTargetSubOrderIdx(subOrderIndex)
-    try {
-      if (navigator.clipboard && navigator.clipboard.read) {
-        const clipboardItems = await navigator.clipboard.read()
-        for (const item of clipboardItems) {
-          const imageType = item.types.find(t => t.startsWith('image/'))
-          if (imageType) {
-            const blob = await item.getType(imageType)
-            const ext = imageType.split('/')[1] || 'png'
-            await uploadImageBlob(blob, `clipboard-paste.${ext}`, subOrderIndex)
-            return
-          }
-        }
-      }
-      if (navigator.clipboard && navigator.clipboard.readText) {
-        const text = await navigator.clipboard.readText()
-        if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
-          await handleSelectYandexDiskImage(text.trim(), subOrderIndex)
-          return
-        }
-      }
-    } catch (err) {
-      console.log('Clipboard API read error, waiting for Ctrl+V event:', err)
-    }
-  }
-
-  // Удаление фото конкретного подзаказа (или конкретного индекса в нем)
-  const handleDeleteSubOrderImage = async (subOrderIndex: number, imageIndexToDelete?: number) => {
-    if (!selectedOrder) return
-    if (!confirm('Удалить эту фотографию?')) return
-    setLoading('image')
-    const updateRes = await updateOrderImageAction(selectedOrder.id, null, subOrderIndex, imageIndexToDelete)
-    setLoading(null)
-    if (updateRes.error) {
-      alert(updateRes.error)
-    } else if (updateRes.imageUrl !== undefined) {
-      setSelectedOrder(prev => prev ? { ...prev, imageUrl: updateRes.imageUrl } : null)
-      setOrders(prev => prev.map(o => o.id === selectedOrder.id ? { ...o, imageUrl: updateRes.imageUrl } : o))
-    }
-  }
-
-  // Удаление фото для существующего заказа
-  const handleDeleteExistingOrderImage = async () => {
-    if (!selectedOrder) return
-    if (!confirm('Вы уверены, что хотите удалить изображение этого заказа?')) return
-
-    setLoading('image')
-    const updateRes = await updateOrderImageAction(selectedOrder.id, null)
-    setLoading(null)
-
-    if (updateRes.error) {
-      alert(updateRes.error)
-    } else {
-      setSelectedOrder(prev => prev ? { ...prev, imageUrl: null } : null)
-      setOrders(prev => prev.map(o => o.id === selectedOrder.id ? { ...o, imageUrl: null } : o))
-    }
   }
 
   // Сменить статус заказа
@@ -1034,20 +956,7 @@ export default function OrderManagement({
     }
   }
 
-  // Фильтрация и поиск заказов
-  const filteredOrders = orders.filter(order => {
-    const matchesStatus = statusFilter === 'all' || order.status === statusFilter
-    
-    const shortId = order.id.slice(-6).toUpperCase()
-    const matchesSearch = 
-      (order.number && order.number.toString().includes(search)) ||
-      shortId.includes(search.toUpperCase()) ||
-      order.client.fullName.toLowerCase().includes(search.toLowerCase()) ||
-      order.client.primaryPhone.includes(search) ||
-      (order.client.additionalPhone && order.client.additionalPhone.includes(search))
-      
-    return matchesStatus && matchesSearch
-  })
+  const filteredOrders = orders
 
   const parseOrderNumParts = (numStr?: string | null) => {
     if (!numStr) return { main: 0, sub: 0 }
@@ -1072,90 +981,169 @@ export default function OrderManagement({
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   })
 
-  const totalPages = Math.ceil(sortedOrders.length / ordersPerPage)
-  const paginatedOrders = sortedOrders.slice((currentPage - 1) * ordersPerPage, currentPage * ordersPerPage)
+  const paginatedOrders = sortedOrders
 
   // Быстрые статистики для панели сверху
-  const totalActive = orders.filter(o => o.status !== 'delivered' && o.status !== 'cancelled').length
-  const totalDelivered = orders.filter(o => o.status === 'delivered').length
-  const totalSum = orders.reduce((sum, o) => sum + (o.status !== 'cancelled' ? (o.totalPrice + o.deliveryPrice + o.assemblyPrice - o.discount) : 0), 0) / 100
+  const totalActive = summary.active
+  const totalDelivered = summary.delivered
+  const totalSum = summary.revenue
 
   return (
-    <div className="space-y-4 min-w-0 max-w-full overflow-hidden">
-      {/* Сводная статистика */}
-      {/* Сводная статистика */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="erp-card p-4 flex items-center justify-between">
+    <div className="min-w-0 max-w-full space-y-3 overflow-hidden">
+      <div className="grid gap-3 lg:grid-cols-3">
+        <div className="erp-card flex min-h-[94px] items-center justify-between px-5 py-4">
           <div>
-            <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">Активные заказы</p>
-            <h3 className="text-xl font-semibold text-[var(--text-primary)] mt-0.5">{totalActive} шт</h3>
+            <p className="text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--text-tertiary)]">Активные заказы</p>
+            <p className="mt-2 text-[22px] font-medium leading-none tracking-[-0.035em] text-[var(--text-primary)]">{totalActive}</p>
           </div>
-          <div className="h-9 w-9 rounded-md bg-[var(--accent-soft)] text-[var(--accent-primary)] flex items-center justify-center font-medium text-xs">
-            {totalActive}
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+            <ShoppingBag className="h-[18px] w-[18px]" strokeWidth={1.8} />
           </div>
         </div>
 
-        <div className="erp-card p-4 flex items-center justify-between">
+        <div className="erp-card flex min-h-[94px] items-center justify-between px-5 py-4">
           <div>
-            <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">Выполнено заказов</p>
-            <h3 className="text-xl font-semibold text-[var(--success)] mt-0.5">{totalDelivered} шт</h3>
+            <p className="text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--text-tertiary)]">Выполнено заказов</p>
+            <p className="mt-2 text-[22px] font-medium leading-none tracking-[-0.035em] text-[var(--text-primary)]">{totalDelivered}</p>
           </div>
-          <div className="h-9 w-9 rounded-md bg-[var(--success-soft)] text-[var(--success)] flex items-center justify-center font-medium text-xs">
-            {totalDelivered}
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--success-soft)] text-[var(--success)]">
+            <CheckCircle2 className="h-[18px] w-[18px]" strokeWidth={1.8} />
           </div>
         </div>
 
-        <div className="erp-card p-4 flex items-center justify-between">
+        <div className="erp-card flex min-h-[94px] items-center justify-between px-5 py-4">
           <div>
-            <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">Сумма активных заказов</p>
-            <h3 className="text-xl font-semibold text-[var(--text-primary)] mt-0.5">
+            <p className="text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--text-tertiary)]">Выручка без отменённых</p>
+            <p className="mt-2 whitespace-nowrap text-[22px] font-medium leading-none tracking-[-0.035em] text-[var(--text-primary)]">
               {totalSum.toLocaleString('ru-RU')} ₽
-            </h3>
+            </p>
           </div>
-          <div className="h-9 w-9 rounded-md bg-[var(--accent-soft)] text-[var(--accent-primary)] flex items-center justify-center font-medium text-xs">
-            ₽
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+            <CreditCard className="h-[18px] w-[18px]" strokeWidth={1.8} />
           </div>
         </div>
       </div>
 
+      <section className="erp-card px-4 py-3.5">
+        <div className="flex flex-col gap-3 md:min-h-8 md:flex-row md:items-center md:justify-between">
+          <div className="shrink-0">
+            <h2 className="text-[15px] font-semibold tracking-[-0.02em] text-[var(--text-primary)]">Этапы заказов</h2>
+            <p className="mt-0.5 text-[10px] text-[var(--text-tertiary)]">Текущая загрузка по статусам</p>
+          </div>
+          <div className="erp-scrollbar-hidden flex min-w-0 flex-1 flex-nowrap gap-1 overflow-x-auto">
+            {Object.entries(STATUSES).map(([key, value]) => {
+              const isActive = statusFilter === key
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => {
+                    setStatusFilter(isActive ? 'all' : key)
+                    navigateList({ status: isActive ? 'all' : key, page: 1 })
+                  }}
+                  className={`inline-flex min-h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border px-2 text-[9px] font-medium transition-colors ${
+                    isActive
+                      ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)] text-white'
+                      : 'border-[var(--border-primary)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
+                  }`}
+                >
+                  <span>{STAGE_LABELS[key] || value.label}</span>
+                  <span className={`rounded-md px-1 py-0.5 tabular-nums ${isActive ? 'bg-white/15' : 'bg-[var(--bg-surface-hover)] text-[var(--text-tertiary)]'}`}>
+                    {summary.statuses[key] || 0}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setStatusFilter('all')
+              navigateList({ status: 'all', page: 1 })
+            }}
+            disabled={statusFilter === 'all'}
+            aria-hidden={statusFilter === 'all'}
+            tabIndex={statusFilter === 'all' ? -1 : 0}
+            className={`inline-flex min-h-8 w-[86px] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-[10px] font-medium text-[var(--accent-primary)] transition-colors hover:bg-[var(--accent-soft)] ${statusFilter === 'all' ? 'invisible pointer-events-none' : ''}`}
+          >
+            <X className="h-3 w-3" />
+            Сбросить
+          </button>
+        </div>
+      </section>
+
       {/* Панель фильтров и добавления */}
-      <div className="flex flex-col gap-3 erp-card p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-1 flex-col gap-2.5 sm:flex-row sm:items-center">
-          <div className="relative flex-1 max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-tertiary)] pointer-events-none z-10" />
+      <div className="erp-card flex flex-col gap-3 p-4 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex min-w-0 flex-1 flex-col gap-2.5 md:flex-row md:items-center">
+          <div className="relative min-w-0 flex-1 xl:max-w-[460px]">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-[var(--text-tertiary)]" strokeWidth={1.8} />
             <input
-              type="text"
+              type="search"
+              aria-label="Поиск заказов"
               placeholder="Поиск по ФИО, телефону, № заказа..."
               value={search}
               onChange={e => {
                 setSearch(e.target.value)
-                setCurrentPage(1)
               }}
-              className="erp-input w-full !pl-9 font-normal"
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') navigateList({ query: search.trim(), page: 1 })
+              }}
+              onBlur={() => {
+                if (search.trim() !== initialQuery) navigateList({ query: search.trim(), page: 1 })
+              }}
+              className="erp-input h-10 w-full !rounded-xl !pl-10 !pr-10 font-normal"
             />
+            {search && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('')
+                  navigateList({ query: '', page: 1 })
+                }}
+                aria-label="Очистить поиск заказов"
+                className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
 
           {/* Фильтр по статусу выполнения */}
           <select
+            aria-label="Фильтр заказов по статусу"
             value={statusFilter}
             onChange={e => {
               setStatusFilter(e.target.value)
-              setCurrentPage(1)
+              navigateList({ status: e.target.value, page: 1 })
             }}
-            className="erp-input font-medium cursor-pointer"
+            className="erp-input h-10 w-full cursor-pointer !rounded-xl font-medium md:w-56"
           >
-            <option value="all">Все статусы выполнения ({orders.length})</option>
-            {Object.entries(STATUSES).map(([key, value]) => {
-              const count = orders.filter(o => o.status === key).length
-              return (
-                <option key={key} value={key}>{value.label} ({count})</option>
-              )
-            })}
+            <option value="all">Все статусы выполнения</option>
+            {Object.entries(STATUSES).map(([key, value]) => (
+              <option key={key} value={key}>{value.label}</option>
+            ))}
           </select>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSearch('')
+              setStatusFilter('all')
+              navigateList({ query: '', status: 'all', page: 1 })
+            }}
+            disabled={!search && statusFilter === 'all'}
+            aria-hidden={!search && statusFilter === 'all'}
+            tabIndex={!search && statusFilter === 'all' ? -1 : 0}
+            className={`erp-button-secondary inline-flex min-h-10 w-24 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap !rounded-xl ${!search && statusFilter === 'all' ? 'invisible pointer-events-none' : ''}`}
+          >
+            <X className="h-3.5 w-3.5" />
+            Очистить
+          </button>
         </div>
 
         {['admin', 'owner', 'manager', 'logistician'].includes(userRole) && (
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:flex-nowrap">
             <button
               onClick={() => {
                 setBatchInputText('')
@@ -1164,10 +1152,10 @@ export default function OrderManagement({
                 setBatchUncheckedIds(new Set())
                 setBatchModalOpen(true)
               }}
-              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-700 dark:text-emerald-400 border border-emerald-600/20 text-xs font-semibold rounded-md transition-colors cursor-pointer"
+              className="erp-button-secondary inline-flex min-h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap !rounded-xl"
               title="Отметить доставленные заказы списком из текста"
             >
-              <Truck className="h-4 w-4 text-emerald-600" />
+              <Truck className="h-4 w-4 text-[var(--success)]" />
               <span>Пакетная доставка</span>
             </button>
 
@@ -1177,7 +1165,7 @@ export default function OrderManagement({
                   resetOrderForm()
                   setCreateModalOpen(true)
                 }}
-                className="erp-button-primary inline-flex items-center justify-center gap-1.5 cursor-pointer text-xs"
+                className="erp-button-primary inline-flex min-h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap !rounded-xl text-xs"
               >
                 <Plus className="h-4 w-4" />
                 Новый заказ
@@ -1190,62 +1178,104 @@ export default function OrderManagement({
       {/* Список заказов в виде таблицы */}
       <div className="erp-card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full min-w-[1080px] border-collapse text-left text-xs">
             <thead>
-              <tr className="border-b border-[var(--border-primary)] text-[var(--text-tertiary)] font-medium uppercase text-[10px] tracking-wider bg-[var(--bg-table-header)]">
-                <th className="p-4 pl-6">Заказ ID</th>
-                <th className="p-4">Дата</th>
-                <th className="p-4">Клиент</th>
-                <th className="p-4 whitespace-nowrap">Сумма заказа</th>
-                <th className="p-4">Телефоны</th>
-                <th className="p-4 pr-6">Статус</th>
+              <tr className="border-b border-[var(--border-primary)] bg-[var(--bg-table-header)] text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--text-tertiary)]">
+                <th className="px-4 py-2.5">Заказ</th>
+                <th className="px-4 py-2.5">Клиент</th>
+                <th className="px-4 py-2.5">Состав</th>
+                <th className="px-4 py-2.5">Дата</th>
+                <th className="px-4 py-2.5">Менеджер</th>
+                <th className="px-4 py-2.5">Сумма</th>
+                <th className="px-4 py-2.5">Статус</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border-primary)] text-[var(--text-primary)] font-normal">
               {paginatedOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-10 text-center text-[var(--text-tertiary)] font-normal">
-                    Заказы не найдены
+                  <td colSpan={7} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--bg-surface-hover)] text-[var(--text-tertiary)]">
+                        <ShoppingCart className="h-[18px] w-[18px]" strokeWidth={1.6} />
+                      </div>
+                      <p className="mt-3 text-xs font-medium text-[var(--text-primary)]">Заказы не найдены</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearch('')
+                          setStatusFilter('all')
+                          navigateList({ query: '', status: 'all', page: 1 })
+                        }}
+                        className="mt-1 text-[10px] text-[var(--accent-primary)] hover:underline"
+                      >
+                        Сбросить фильтры
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ) : (
                 paginatedOrders.map(order => {
                   const shortId = order.id.slice(-6).toUpperCase()
                   const grandTotalCents = order.totalPrice + order.deliveryPrice + order.assemblyPrice - order.discount
+                  const productNames = Array.from(new Set(order.items.map(item => item.variant.product.name)))
+                  const itemQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0)
                   return (
-                    <tr 
-                      key={order.id} 
+                    <tr
+                      key={order.id}
+                      tabIndex={0}
+                      aria-label={`Открыть заказ ${order.number || shortId}`}
                       onClick={() => openOrderDetails(order)}
-                      className="hover:bg-[var(--bg-table-row-hover)] cursor-pointer transition-colors"
+                      onKeyDown={event => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          openOrderDetails(order)
+                        }
+                      }}
+                      className="cursor-pointer transition-colors hover:bg-[var(--bg-table-row-hover)] focus-visible:bg-[var(--accent-soft)] focus-visible:outline-none"
                     >
-                      <td className="p-3.5 pl-6 font-mono font-semibold text-[var(--text-primary)]">
-                        {order.number ? `№${order.number}` : `#${shortId}`}
+                      <td className="px-4 py-2.5">
+                        <span className="font-mono text-[11px] font-semibold text-[var(--text-primary)]">
+                          {order.number ? `№${order.number}` : `#${shortId}`}
+                        </span>
                       </td>
-                      <td className="p-3.5 text-[var(--text-tertiary)]">
-                        <div>{new Date(order.createdAt).toLocaleDateString('ru-RU')}</div>
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+                            <User className="h-3.5 w-3.5" strokeWidth={1.8} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="max-w-[170px] truncate text-[11px] font-medium text-[var(--text-primary)]">{order.client.fullName}</p>
+                            <p className="mt-0.5 whitespace-nowrap font-mono text-[9px] text-[var(--text-tertiary)]">{order.client.primaryPhone}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="max-w-[250px] px-4 py-2.5">
+                        <p className="truncate text-[10px] font-medium text-[var(--text-secondary)]" title={productNames.join(', ')}>
+                          {productNames.join(', ') || 'Состав не указан'}
+                        </p>
+                        <p className="mt-1 text-[9px] text-[var(--text-tertiary)]">Позиций: {itemQuantity}</p>
+                      </td>
+                      <td className="px-4 py-2.5 text-[10px] tabular-nums text-[var(--text-secondary)]">
+                        <div className="whitespace-nowrap">{new Date(order.createdAt).toLocaleDateString('ru-RU')}</div>
                         {order.plannedDeliveryDate && (
-                          <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-[var(--accent-primary)] bg-[var(--accent-soft)] px-1.5 py-0.5 rounded">
-                            📅 {new Date(order.plannedDeliveryDate).toLocaleDateString('ru-RU')}
+                          <div className="mt-1 inline-flex items-center gap-1 whitespace-nowrap text-[9px] font-medium text-[var(--accent-primary)]">
+                            <Calendar className="h-3 w-3" />
+                            Доставка {new Date(order.plannedDeliveryDate).toLocaleDateString('ru-RU')}
                           </div>
                         )}
                       </td>
-                      <td className="p-3.5">
-                        <div className="font-medium text-[var(--text-primary)]">{order.client.fullName}</div>
+                      <td className="px-4 py-2.5 text-[10px] text-[var(--text-secondary)]">
+                        <span className="block max-w-[140px] truncate">{order.seller?.fullName || order.creator.fullName}</span>
                       </td>
-                      <td className="p-3.5 whitespace-nowrap font-semibold text-[var(--text-primary)]">
+                      <td className="whitespace-nowrap px-4 py-2.5 text-[11px] font-semibold tabular-nums text-[var(--text-primary)]">
                         {(grandTotalCents / 100).toLocaleString('ru-RU')} ₽
                       </td>
-                      <td className="p-3.5 text-[var(--text-secondary)] font-mono text-[11px]">
-                        <div>{order.client.primaryPhone}</div>
-                        {order.client.additionalPhone && (
-                          <div className="text-[var(--text-tertiary)] text-[10px]">{order.client.additionalPhone}</div>
-                        )}
-                      </td>
-                      <td className="p-3.5 pr-6" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-4 py-2.5" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
                         <select
+                          aria-label={`Статус заказа ${order.number || shortId}`}
                           value={order.status}
                           onChange={(e) => handleDirectStatusChange(order, e.target.value)}
-                          className="erp-badge cursor-pointer outline-none font-medium py-1 px-2.5 rounded-full transition-all hover:opacity-85"
+                          className="erp-badge w-[178px] cursor-pointer whitespace-nowrap rounded-full px-2.5 py-1 font-medium outline-none transition-all hover:opacity-85"
                           data-status={order.status}
                           title="Нажмите, чтобы изменить статус заказа"
                         >
@@ -1265,35 +1295,34 @@ export default function OrderManagement({
         </div>
         
         {/* Пагинация и выбор лимита */}
-        {filteredOrders.length > 0 && (
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-[var(--border-primary)] bg-[var(--bg-table-header)] px-6 py-3">
-            <div className="flex items-center gap-4">
-              <div className="text-[var(--text-tertiary)] text-xs font-normal">
-                Показано {(currentPage - 1) * ordersPerPage + 1} - {Math.min(currentPage * ordersPerPage, filteredOrders.length)} из {filteredOrders.length}
+        {totalOrders > 0 && (
+          <div className="flex flex-col gap-3 border-t border-[var(--border-primary)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="whitespace-nowrap text-[10px] font-normal text-[var(--text-tertiary)]">
+                Показано {(currentPage - 1) * ordersPerPage + 1}–{Math.min(currentPage * ordersPerPage, totalOrders)} из {totalOrders}
               </div>
-              <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] font-normal">
-                <span>Показывать по:</span>
+              <div className="flex items-center gap-1.5 whitespace-nowrap text-[10px] font-normal text-[var(--text-secondary)]">
+                <span>На странице</span>
                 <select
                   value={ordersPerPage}
                   onChange={e => {
-                    setOrdersPerPage(Number(e.target.value))
-                    setCurrentPage(1)
+                    navigateList({ pageSize: Number(e.target.value), page: 1 })
                   }}
-                  className="erp-input px-2 py-1 text-xs font-medium cursor-pointer"
+                  className="erp-input h-8 cursor-pointer !rounded-lg px-2 py-1 text-[10px] font-medium"
                 >
                   <option value={10}>10</option>
-                  <option value={15}>15</option>
                   <option value={20}>20</option>
+                  <option value={50}>50</option>
                 </select>
               </div>
             </div>
             
             {totalPages > 1 && (
-              <div className="flex gap-1">
+              <div className="erp-scrollbar-hidden flex max-w-full items-center gap-1 overflow-x-auto">
                 <button
                   disabled={currentPage === 1}
-                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                  className="erp-button-secondary px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
+                  onClick={() => navigateList({ page: Math.max(currentPage - 1, 1) })}
+                  className="erp-button-secondary h-8 cursor-pointer px-2.5 py-1 text-[10px] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Назад
                 </button>
@@ -1301,15 +1330,15 @@ export default function OrderManagement({
                   const page = idx + 1
                   if (totalPages > 5 && Math.abs(page - currentPage) > 1 && page !== 1 && page !== totalPages) {
                     if (page === 2 || page === totalPages - 1) {
-                      return <span key={page} className="px-2 py-1 text-[var(--text-tertiary)] text-xs font-medium">...</span>
+                      return <span key={page} className="px-2 py-1 text-[10px] font-medium text-[var(--text-tertiary)]">…</span>
                     }
                     return null
                   }
                   return (
                     <button
                       key={page}
-                      onClick={() => setCurrentPage(page)}
-                      className={`px-2.5 py-1 text-xs font-medium rounded transition-colors cursor-pointer ${
+                      onClick={() => navigateList({ page })}
+                      className={`h-8 min-w-8 cursor-pointer whitespace-nowrap rounded-lg px-2.5 py-1 text-[10px] font-medium transition-colors ${
                         currentPage === page
                           ? 'bg-[var(--accent-primary)] text-white'
                           : 'bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)]'
@@ -1321,8 +1350,8 @@ export default function OrderManagement({
                 })}
                 <button
                   disabled={currentPage === totalPages}
-                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                  className="erp-button-secondary px-2.5 py-1 text-xs cursor-pointer disabled:opacity-50"
+                  onClick={() => navigateList({ page: Math.min(currentPage + 1, totalPages) })}
+                  className="erp-button-secondary h-8 cursor-pointer px-2.5 py-1 text-[10px] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Вперед
                 </button>
@@ -1334,52 +1363,86 @@ export default function OrderManagement({
 
       {/* Модальное окно: Просмотр и редактирование заказа */}
       {selectedOrder && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--bg-overlay)] backdrop-blur-xs"
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] p-4 backdrop-blur-xs"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="order-details-title"
           onClick={(e) => {
             if (e.target === e.currentTarget) closeOrderDetails()
           }}
         >
-          <div className="relative w-full max-w-5xl h-[85vh] max-h-[85vh] bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-lg shadow-md overflow-hidden flex flex-col">
-            <div className="flex h-12 items-center justify-between border-b border-[var(--border-primary)] bg-[var(--bg-table-header)] px-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-primary)]">
-                Информация о заказе {selectedOrder.number ? `№${selectedOrder.number}` : `#${selectedOrder.id.slice(-6).toUpperCase()}`}
-              </h3>
-              <div className="flex items-center gap-2">
+          <div className="relative flex h-[88vh] max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] shadow-lg">
+            <div className="flex min-h-16 items-center justify-between gap-4 border-b border-[var(--border-primary)] px-5 py-3">
+              <div className="min-w-0">
+                <h3 id="order-details-title" className="truncate text-base font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
+                  Заказ {selectedOrder.number ? `№${selectedOrder.number}` : `#${selectedOrder.id.slice(-6).toUpperCase()}`}
+                </h3>
+                <p className="mt-0.5 truncate text-[10px] text-[var(--text-tertiary)]">{selectedOrder.client.fullName} · {new Date(selectedOrder.createdAt).toLocaleDateString('ru-RU')}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
                 {['admin', 'owner', 'manager'].includes(userRole) && (
                   <button
+                    type="button"
                     onClick={() => openEditOrderModal(selectedOrder)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded bg-[var(--accent-primary)] text-white hover:opacity-90 transition-opacity cursor-pointer shadow-xs"
+                    className="erp-button-secondary inline-flex shrink-0 items-center gap-2 whitespace-nowrap"
                     title="Редактировать состав и данные заказа"
                   >
                     <Pencil className="h-3.5 w-3.5" />
-                    <span>Редактировать</span>
+                    <span className="hidden sm:inline">Редактировать</span>
                   </button>
                 )}
                 {['admin', 'owner'].includes(userRole) && (
                   <button
+                    type="button"
                     onClick={handleDeleteOrder}
                     disabled={loading === 'delete'}
-                    className="p-1 text-[var(--text-tertiary)] hover:text-[var(--danger)] hover:bg-[var(--danger-soft)] rounded transition-colors cursor-pointer disabled:opacity-50"
+                    aria-label="Удалить заказ"
+                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-[var(--text-tertiary)] transition-colors hover:bg-[var(--danger-soft)] hover:text-[var(--danger)] disabled:opacity-50"
                     title="Удалить заказ"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
                 )}
                 <button
+                  type="button"
                   onClick={closeOrderDetails}
-                  className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] rounded transition-colors cursor-pointer"
+                  aria-label="Закрыть карточку заказа"
+                  className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 grid gap-4 md:grid-cols-3">
+            <div className="border-b border-[var(--border-primary)] bg-[var(--bg-surface-secondary)] px-4 py-3 sm:px-5">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="min-w-0 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface)] px-3 py-2">
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Клиент</p>
+                  <p className="mt-1 truncate text-xs font-semibold text-[var(--text-primary)]">{selectedOrder.client.fullName}</p>
+                </div>
+                <div className="min-w-0 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface)] px-3 py-2">
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Телефон</p>
+                  <p className="mt-1 truncate font-mono text-xs font-semibold text-[var(--text-primary)]">{selectedOrder.client.primaryPhone}</p>
+                </div>
+                <div className="min-w-0 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface)] px-3 py-2">
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Продавец</p>
+                  <p className="mt-1 truncate text-xs font-semibold text-[var(--text-primary)]">{selectedOrder.seller?.fullName || selectedOrder.creator.fullName}</p>
+                </div>
+                <div className="min-w-0 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface)] px-3 py-2">
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Итого</p>
+                  <p className="mt-1 whitespace-nowrap text-xs font-semibold text-[var(--accent-primary)]">
+                    {((selectedOrder.totalPrice + selectedOrder.deliveryPrice + selectedOrder.assemblyPrice - selectedOrder.discount) / 100).toLocaleString('ru-RU')} ₽
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid flex-1 gap-4 overflow-y-auto p-4 sm:p-5 md:grid-cols-3">
               {/* Левая колонка: Реквизиты и Позиции */}
-              <div className="md:col-span-2 space-y-4">
+              <div className="flex min-w-0 flex-col gap-4 md:col-span-2">
                 {/* Реквизиты клиента */}
-                <div className="bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded-md p-3 space-y-2">
+                <div className="order-1 bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded-md p-3 space-y-2">
                   <h4 className="font-semibold text-xs text-[var(--text-primary)] flex items-center gap-1.5">
                     <User className="h-4 w-4 text-[var(--accent-primary)]" />
                     Данные клиента
@@ -1400,9 +1463,9 @@ export default function OrderManagement({
                       </div>
                     )}
                     {selectedOrder.deliveryAddress && (
-                      <div className="sm:col-span-2 flex items-start gap-1">
+                      <div className="flex min-w-0 items-start gap-1 sm:col-span-2">
                         <span className="text-[var(--text-tertiary)] whitespace-nowrap">Адрес доставки: </span>
-                        <span className="font-semibold text-[var(--text-primary)] flex items-center gap-1">
+                        <span className="flex min-w-0 items-center gap-1 break-words font-semibold text-[var(--text-primary)]">
                           <MapPin className="h-3 w-3 text-red-500 shrink-0 mt-0.5" />
                           {selectedOrder.deliveryAddress}
                         </span>
@@ -1420,12 +1483,14 @@ export default function OrderManagement({
                         Создан {new Date(selectedOrder.createdAt).toLocaleString('ru-RU')}
                       </span>
                       {selectedOrder.plannedDeliveryDate && (
-                        <span className="flex items-center gap-1 font-semibold text-[var(--accent-primary)] bg-[var(--accent-soft)] px-2 py-0.5 rounded">
-                          📅 Желаемая дата доставки: {new Date(selectedOrder.plannedDeliveryDate).toLocaleDateString('ru-RU')}
+                        <span className="flex items-center gap-1 whitespace-nowrap rounded bg-[var(--accent-soft)] px-2 py-0.5 font-semibold text-[var(--accent-primary)]">
+                          <Calendar className="h-3 w-3" />
+                          Желаемая дата доставки: {new Date(selectedOrder.plannedDeliveryDate).toLocaleDateString('ru-RU')}
                         </span>
                       )}
-                      <span className="font-semibold text-[var(--text-primary)]">
-                        💼 Продавец: {selectedOrder.seller?.fullName || selectedOrder.creator.fullName}
+                      <span className="flex items-center gap-1 whitespace-nowrap font-semibold text-[var(--text-primary)]">
+                        <User className="h-3 w-3 text-[var(--text-tertiary)]" />
+                        Продавец: {selectedOrder.seller?.fullName || selectedOrder.creator.fullName}
                       </span>
                       {selectedOrder.seller && selectedOrder.seller.fullName !== selectedOrder.creator.fullName && (
                         <span className="text-[var(--text-tertiary)]">(Оформил: {selectedOrder.creator.fullName})</span>
@@ -1439,17 +1504,16 @@ export default function OrderManagement({
                   const imagesMap = parseOrderImages(selectedOrder.imageUrl)
                   const uniqueSubIdxs = Array.from(new Set(selectedOrder.items.map(i => i.subOrderIndex || 0))).sort((a, b) => a - b)
                   const hasMultipleSubOrders = uniqueSubIdxs.length > 1
-                  const canEditPhotos = ['admin', 'owner', 'manager'].includes(userRole)
                   const totalPhotosCount = Object.values(imagesMap).flat().length
 
                   return (
-                    <div className="bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded-lg p-3.5 space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <h4 className="font-semibold text-xs text-[var(--text-primary)] flex items-center gap-1.5 uppercase tracking-wider">
+                    <div className="order-3 min-w-0 space-y-2.5 rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface-secondary)] p-3.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <h4 className="flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-[var(--text-primary)]">
                           <Paperclip className="h-3.5 w-3.5 text-[var(--accent-primary)]" />
-                          Фото комплекта (всего файлов: {totalPhotosCount})
+                          Фотографии заказа · {totalPhotosCount}
                         </h4>
-                        <span className="text-[10px] text-[var(--text-tertiary)]">Кликните на фото для просмотра</span>
+                        <span className="hidden whitespace-nowrap text-[10px] text-[var(--text-tertiary)] sm:inline">Нажмите на фото для просмотра</span>
                       </div>
 
                       <div className="space-y-3">
@@ -1458,52 +1522,21 @@ export default function OrderManagement({
                           return (
                             <div key={subIdx} className="bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-lg p-2.5 space-y-2 shadow-xs">
                               <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-tight">
+                                <span className="shrink-0 whitespace-nowrap text-[10px] font-semibold text-[var(--text-secondary)]">
                                   {hasMultipleSubOrders ? `Подзаказ ${idx + 1}` : 'Комплект'} ({subPhotos.length} фото)
                                 </span>
-                                {canEditPhotos && (
-                                  <div className="flex items-center gap-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setYandexPickerSubOrderIdx(subIdx)
-                                        setYandexPickerOpen(true)
-                                      }}
-                                      className="inline-flex items-center gap-1 px-2 py-1 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-600 dark:text-yellow-500 text-[10px] font-semibold rounded cursor-pointer transition-colors"
-                                      title="Добавить фото из Яндекс.Диска"
-                                    >
-                                      <Folder className="h-3 w-3" />
-                                      + Я.Диск
-                                    </button>
-                                    <label
-                                      htmlFor={`update-image-input-${subIdx}`}
-                                      className="inline-flex items-center gap-1 px-2 py-1 bg-[var(--bg-surface-secondary)] hover:bg-[var(--bg-surface-active)] text-[var(--text-primary)] text-[10px] font-semibold rounded border border-[var(--border-primary)] cursor-pointer select-none transition-colors"
-                                      title="Загрузить файл с устройства"
-                                    >
-                                      <Plus className="h-3 w-3" />
-                                      + Файл
-                                    </label>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSubOrderImagePaste(subIdx)}
-                                      disabled={loading === 'image'}
-                                      className="inline-flex items-center gap-1 px-2 py-1 bg-[#4B63FF]/10 hover:bg-[#4B63FF]/20 text-[#4B63FF] text-[10px] font-semibold rounded transition-colors cursor-pointer disabled:opacity-50"
-                                      title="Вставить фото из буфера обмена (Ctrl+V)"
-                                    >
-                                      <Clipboard className="h-3 w-3" />
-                                      + Вставить
-                                    </button>
-                                  </div>
-                                )}
                               </div>
 
                               {subPhotos.length > 0 ? (
                                 <div className="flex flex-wrap gap-2 pt-1">
                                   {subPhotos.map((photoUrl, photoIdx) => (
                                     <div key={photoIdx} className="relative h-24 w-28 rounded-md overflow-hidden border border-[var(--border-primary)] bg-[var(--bg-surface-secondary)] group">
-                                      <img
+                                      <Image
                                         src={photoUrl}
                                         alt={`Фото ${photoIdx + 1}`}
+                                        fill
+                                        sizes="112px"
+                                        unoptimized
                                         className="h-full w-full object-cover cursor-zoom-in transition-transform duration-200 group-hover:scale-105"
                                         onClick={() => setLightboxUrl(photoUrl)}
                                       />
@@ -1514,17 +1547,6 @@ export default function OrderManagement({
                                         <Eye className="h-5 w-5 text-white drop-shadow" />
                                       </div>
                                       
-                                      {canEditPhotos && (
-                                        <button
-                                          type="button"
-                                          title="Удалить это фото"
-                                          disabled={loading === 'image'}
-                                          onClick={() => handleDeleteSubOrderImage(subIdx, photoIdx)}
-                                          className="absolute top-1 right-1 p-1 bg-black/60 hover:bg-red-500 text-white rounded transition-colors cursor-pointer disabled:opacity-50 opacity-0 group-hover:opacity-100"
-                                        >
-                                          <Trash2 className="h-3 w-3" />
-                                        </button>
-                                      )}
                                     </div>
                                   ))}
                                 </div>
@@ -1532,17 +1554,6 @@ export default function OrderManagement({
                                 <div className="p-3 border border-dashed border-[var(--border-strong)] rounded-md bg-[var(--bg-surface-secondary)] text-center text-[10px] text-[var(--text-tertiary)]">
                                   Нет загруженных фотографий для этого подзаказа
                                 </div>
-                              )}
-
-                              {canEditPhotos && (
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  id={`update-image-input-${subIdx}`}
-                                  className="hidden"
-                                  onChange={(e) => handleSubOrderImageUpload(e, subIdx)}
-                                  disabled={loading === 'image'}
-                                />
                               )}
                             </div>
                           )
@@ -1553,7 +1564,7 @@ export default function OrderManagement({
                 })()}
 
                 {/* Позиции заказа */}
-                <div className="space-y-4">
+                <div className="order-2 space-y-4">
                   <h4 className="font-semibold text-sm text-[var(--text-primary)] flex items-center gap-2">
                     <ShoppingBag className="h-4 w-4 text-emerald-600" />
                     Состав заказа
@@ -1570,19 +1581,16 @@ export default function OrderManagement({
                     }
 
                     return Array.from(groupedDetailsItems.entries()).sort((a, b) => a[0] - b[0]).map(([subIdx, items], idx) => {
-                        const hasMultipleSubOrders = groupedDetailsItems.size > 1
-                        const canEditPhotos = ['admin', 'owner', 'manager'].includes(userRole)
-
                         return (
-                          <div key={subIdx} className="space-y-3 border border-[var(--border-primary)] rounded-lg overflow-hidden p-4 bg-[var(--bg-surface-secondary)]">
+                          <div key={subIdx} className="space-y-3 overflow-x-auto rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface-secondary)] p-4">
                             <h5 className="font-semibold text-xs text-[var(--text-primary)] uppercase tracking-wider">
                               Заказ {idx + 1}
                             </h5>
-                            <table className="w-full text-left border-collapse text-xs">
+                            <table className="w-full min-w-[620px] border-collapse text-left text-xs">
                               <thead>
                                 <tr className="border-b border-[var(--border-primary)] text-[var(--text-tertiary)] font-medium bg-[var(--bg-table-header)]">
-                                  <th className="p-3 pl-0">Товар / Вариант</th>
-                                  <th className="p-3">Артикул (SKU)</th>
+                                  <th className="whitespace-nowrap p-3 pl-0">Товар / Вариант</th>
+                                  <th className="whitespace-nowrap p-3">Артикул (SKU)</th>
                                   <th className="p-3 text-center whitespace-nowrap">Кол-во</th>
                                   <th className="p-3 whitespace-nowrap">Цена продажи</th>
                                   <th className="p-3 pr-0 text-right whitespace-nowrap">Итого</th>
@@ -1604,7 +1612,7 @@ export default function OrderManagement({
                                       </div>
                                       {item.customChairsCount !== null && item.customChairsCount !== undefined && (
                                         <div className="text-[10px] text-brand font-bold mt-0.5">
-                                          🪑 Стульев в комплекте: {item.customChairsCount} шт
+                                          Стульев в комплекте: {item.customChairsCount} шт
                                         </div>
                                       )}
                                     </td>
@@ -1631,7 +1639,7 @@ export default function OrderManagement({
                 </div>
 
                 {/* История изменений логов */}
-                <div className="space-y-3">
+                <div className="order-4 space-y-3">
                   <h4 className="font-semibold text-sm text-[var(--text-primary)] flex items-center gap-2">
                     <History className="h-4 w-4 text-emerald-600" />
                     История и аудит изменений
@@ -1659,7 +1667,7 @@ export default function OrderManagement({
               </div>
 
               {/* Правая колонка: Финансы, Статусы и Действия */}
-              <div className="space-y-6 border-t md:border-t-0 md:border-l border-[var(--border-primary)] md:pl-6 pt-6 md:pt-0">
+              <div className="min-w-0 space-y-6 border-t border-[var(--border-primary)] pt-6 md:border-l md:border-t-0 md:pl-6 md:pt-0">
                 {/* Блок финансов */}
                 <div className="bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded-lg p-4 space-y-3">
                   <h4 className="font-semibold text-sm text-[var(--text-primary)] flex items-center gap-2">
@@ -1824,33 +1832,41 @@ export default function OrderManagement({
 
       {/* Модальное окно: Создание нового заказа */}
       {createModalOpen && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--bg-overlay)] backdrop-blur-xs"
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] p-2 backdrop-blur-xs sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="order-form-title"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               handleRequestCloseOrderModal()
             }
           }}
         >
-          <div className="relative w-full max-w-5xl h-[85vh] max-h-[85vh] bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-lg shadow-md overflow-hidden flex flex-col">
-            <div className="flex h-12 items-center justify-between border-b border-[var(--border-primary)] bg-[var(--bg-table-header)] px-4">
-              <h3 className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wider">
-                {editingOrderId 
-                  ? `Редактирование заказа ${selectedOrder?.number ? `№${selectedOrder.number}` : ''}` 
+          <div className="relative flex h-[92vh] max-h-[92vh] w-full max-w-[1080px] flex-col overflow-hidden rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] shadow-lg sm:h-[88vh] sm:max-h-[88vh]">
+            <div className="flex min-h-16 items-center justify-between gap-4 border-b border-[var(--border-primary)] px-4 py-3 sm:px-5">
+              <div className="min-w-0">
+              <h3 id="order-form-title" className="truncate text-base font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
+                {editingOrderId
+                  ? `Редактирование заказа ${selectedOrder?.number ? `№${selectedOrder.number}` : ''}`
                   : 'Оформление нового заказа'}
               </h3>
+                <p className="mt-0.5 text-[10px] text-[var(--text-tertiary)]">Клиент, доставка, состав заказа и расчёт — в одном окне</p>
+              </div>
               <button
+                type="button"
                 onClick={handleRequestCloseOrderModal}
-                className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] rounded transition-colors cursor-pointer"
+                aria-label="Закрыть форму заказа"
+                className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             <form onSubmit={handleCreateOrder} className="flex flex-col flex-1 overflow-hidden">
-              <div className="p-4 space-y-4 overflow-y-auto flex-1 grid gap-4 md:grid-cols-3">
+              <div className="grid flex-1 gap-4 overflow-y-auto p-4 sm:p-5 md:grid-cols-3">
                 {/* Левая часть: данные клиента и позиции */}
-                <div className="md:col-span-2 space-y-4">
+                <div className="space-y-4 md:col-span-2">
                   {errorMsg && (
                     <div className="p-3 text-xs bg-[var(--danger-soft)] border border-[var(--danger)]/20 text-[var(--danger)] font-medium rounded-md">
                       {errorMsg}
@@ -1859,14 +1875,14 @@ export default function OrderManagement({
 
                   {/* Блок клиента */}
                   <div className="p-3 bg-[var(--bg-surface-secondary)] rounded-md border border-[var(--border-primary)] space-y-3">
-                    <h4 className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wider flex items-center gap-1.5">
+                    <h4 className="flex items-center gap-1.5 text-sm font-semibold text-[var(--text-primary)]">
                       <User className="h-4 w-4 text-[var(--accent-primary)]" />
-                      Клиент (Два телефона и регистрация)
+                      Данные клиента
                     </h4>
                     <div className="grid gap-2.5 sm:grid-cols-2 relative">
                       <div>
                         <label className="block text-[10px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
-                          Основной телефон клиента *
+                          Основной телефон *
                         </label>
                         <input
                           type="text"
@@ -1907,7 +1923,7 @@ export default function OrderManagement({
 
                       <div>
                         <label className="block text-[10px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
-                          Дополнительный телефон клиента
+                          Дополнительный телефон
                         </label>
                         <input
                           type="text"
@@ -1959,9 +1975,8 @@ export default function OrderManagement({
                       </div>
 
                       <div className="sm:col-span-2">
-                        <label className="block text-[10px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider mb-1 flex items-center justify-between">
-                          <span>Желаемая дата доставки (опционально)</span>
-                          <span className="text-[var(--text-tertiary)] font-normal lowercase">(например, если нужно через пару месяцев)</span>
+                        <label className="block text-[10px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
+                          <span>Желаемая дата доставки</span>
                         </label>
                         <input
                           type="date"
@@ -1973,7 +1988,7 @@ export default function OrderManagement({
 
                       <div className="sm:col-span-2">
                         <label className="block text-[10px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider mb-1">
-                          Продавец (Кто продал заказ) *
+                          Продавец *
                         </label>
                         <select
                           required
@@ -2173,6 +2188,7 @@ export default function OrderManagement({
                       })
                     })()}
                   </div>
+
                 </div>
 
                 {/* Правая часть: Расчет стоимости */}
@@ -2261,7 +2277,7 @@ export default function OrderManagement({
                                 <div className="flex flex-wrap gap-2 p-2 bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded-lg">
                                   {currentPhotos.map((url, imgIdx) => (
                                     <div key={imgIdx} className="relative h-16 w-20 rounded border border-[var(--border-primary)] overflow-hidden group">
-                                      <img src={url} alt={`Превью ${imgIdx + 1}`} className="h-full w-full object-cover" />
+                                      <Image src={url} alt={`Превью ${imgIdx + 1}`} fill sizes="80px" unoptimized className="object-cover" />
                                       <button
                                         type="button"
                                         title="Удалить фото"
@@ -2426,21 +2442,21 @@ export default function OrderManagement({
               </div>
 
               {/* Футер создания/редактирования заказа */}
-              <div className="p-4 border-t border-[var(--border-primary)] bg-[var(--bg-table-header)] flex justify-end gap-2">
+              <div className="flex items-center justify-between gap-3 border-t border-[var(--border-primary)] bg-[var(--bg-table-header)] p-4 sm:px-5">
                 <button
                   type="button"
                   onClick={handleRequestCloseOrderModal}
-                  className="erp-button-secondary cursor-pointer"
+                  className="erp-button-secondary shrink-0 cursor-pointer whitespace-nowrap"
                 >
                   Отмена
                 </button>
                 <button
                   type="submit"
                   disabled={loading === 'create'}
-                  className="erp-button-primary cursor-pointer disabled:opacity-50"
+                  className="erp-button-primary min-w-[154px] shrink-0 cursor-pointer whitespace-nowrap disabled:opacity-50"
                 >
-                  {loading === 'create' 
-                    ? (editingOrderId ? 'Сохранение...' : 'Создание...') 
+                  {loading === 'create'
+                    ? (editingOrderId ? 'Сохранение...' : 'Создание...')
                     : (editingOrderId ? 'Сохранить изменения' : 'Оформить заказ')
                   }
                 </button>
@@ -2754,9 +2770,12 @@ export default function OrderManagement({
             >
               <X className="h-6 w-6" />
             </button>
-            <img
+            <Image
               src={lightboxUrl}
               alt="Увеличенное изображение"
+              width={1600}
+              height={1200}
+              unoptimized
               className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl cursor-default"
               onClick={(e) => e.stopPropagation()}
             />

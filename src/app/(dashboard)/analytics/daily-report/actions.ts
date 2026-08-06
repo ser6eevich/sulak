@@ -3,12 +3,15 @@
 import { dashboardService } from '@/lib/analytics/DashboardService'
 import prisma from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
+import { requireRole } from '@/lib/auth/dal'
+import { encryptSecret } from '@/lib/settings/secret-crypto'
 
 export async function getDailyReportAction(
   dateString: string,
   manualInputs?: { missedCalls?: number; totalLeads?: number }
 ) {
   try {
+    await requireRole(['admin', 'owner', 'manager'])
     const reportData = await dashboardService.getDashboardStats(dateString, manualInputs)
     return { success: true, report: reportData }
   } catch (error: unknown) {
@@ -24,6 +27,7 @@ export async function saveAmoCrmCredentialsAction(data: {
   refreshToken?: string
 }) {
   try {
+    await requireRole(['admin', 'owner'])
     const expiresAt = (Date.now() + 86400 * 1000).toString()
 
     const cleanSubdomain = data.subdomain
@@ -45,28 +49,38 @@ export async function saveAmoCrmCredentialsAction(data: {
         create: { key: 'amocrm_client_id', value: data.clientId.trim() },
       }),
       prisma.systemSetting.upsert({
-        where: { key: 'amocrm_client_secret' },
-        update: { value: data.clientSecret.trim() },
-        create: { key: 'amocrm_client_secret', value: data.clientSecret.trim() },
-      }),
-      prisma.systemSetting.upsert({
-        where: { key: 'amocrm_access_token' },
-        update: { value: data.accessToken.trim() },
-        create: { key: 'amocrm_access_token', value: data.accessToken.trim() },
-      }),
-      prisma.systemSetting.upsert({
         where: { key: 'amocrm_expires_at' },
         update: { value: expiresAt },
         create: { key: 'amocrm_expires_at', value: expiresAt },
       }),
     ]
 
+    if (data.clientSecret.trim()) {
+      upserts.push(
+        prisma.systemSetting.upsert({
+          where: { key: 'amocrm_client_secret' },
+          update: { value: encryptSecret(data.clientSecret.trim()) },
+          create: { key: 'amocrm_client_secret', value: encryptSecret(data.clientSecret.trim()) },
+        })
+      )
+    }
+
+    if (data.accessToken.trim()) {
+      upserts.push(
+        prisma.systemSetting.upsert({
+          where: { key: 'amocrm_access_token' },
+          update: { value: encryptSecret(data.accessToken.trim()) },
+          create: { key: 'amocrm_access_token', value: encryptSecret(data.accessToken.trim()) },
+        })
+      )
+    }
+
     if (data.refreshToken) {
       upserts.push(
         prisma.systemSetting.upsert({
           where: { key: 'amocrm_refresh_token' },
-          update: { value: data.refreshToken.trim() },
-          create: { key: 'amocrm_refresh_token', value: data.refreshToken.trim() },
+          update: { value: encryptSecret(data.refreshToken.trim()) },
+          create: { key: 'amocrm_refresh_token', value: encryptSecret(data.refreshToken.trim()) },
         })
       )
     }
@@ -90,6 +104,7 @@ export async function saveAmoCrmCredentialsAction(data: {
 
 export async function testAmoCrmConnectionAction() {
   try {
+    await requireRole(['admin', 'owner'])
     const { amoClient } = await import('@/lib/analytics/AmoClient')
     return await amoClient.testConnection()
   } catch (error: unknown) {
@@ -99,6 +114,7 @@ export async function testAmoCrmConnectionAction() {
 
 export async function getAmoCrmSettingsAction() {
   try {
+    await requireRole(['admin', 'owner'])
     const settings = await prisma.systemSetting.findMany({
       where: {
         key: {
@@ -120,9 +136,12 @@ export async function getAmoCrmSettingsAction() {
     return {
       subdomain: map['amocrm_subdomain'] || '',
       clientId: map['amocrm_client_id'] || '',
-      clientSecret: map['amocrm_client_secret'] || '',
-      accessToken: map['amocrm_access_token'] || '',
-      refreshToken: map['amocrm_refresh_token'] || '',
+      clientSecret: '',
+      accessToken: '',
+      refreshToken: '',
+      hasClientSecret: Boolean(map['amocrm_client_secret']),
+      hasAccessToken: Boolean(map['amocrm_access_token']),
+      hasRefreshToken: Boolean(map['amocrm_refresh_token']),
       isConnected: !!(map['amocrm_subdomain'] && map['amocrm_access_token']),
     }
   } catch {
@@ -132,8 +151,10 @@ export async function getAmoCrmSettingsAction() {
       clientSecret: '',
       accessToken: '',
       refreshToken: '',
+      hasClientSecret: false,
+      hasAccessToken: false,
+      hasRefreshToken: false,
       isConnected: false,
     }
   }
 }
-

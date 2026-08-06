@@ -2,11 +2,16 @@ import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import prisma from '@/lib/prisma'
 import OrderManagement from './OrderManagement'
-import { ShoppingCart } from 'lucide-react'
+import type { Prisma } from '@prisma/client'
+import { requireAccess } from '@/lib/auth/dal'
 
 export const dynamic = 'force-dynamic'
 
-export default async function OrdersPage() {
+interface OrdersPageProps {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}
+
+export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -22,10 +27,42 @@ export default async function OrdersPage() {
     redirect('/unauthorized')
   }
 
+  await requireAccess('orders', ['admin', 'owner', 'manager', 'production', 'warehouse', 'logistician', 'driver'])
+
+  const params = await searchParams
+  const query = (typeof params.q === 'string' ? params.q : '').trim().slice(0, 100)
+  const requestedStatus = typeof params.status === 'string' ? params.status : 'all'
+  const allowedStatuses = ['pending', 'confirmed', 'production', 'warehouse', 'awaiting_delivery', 'delivery', 'delivered', 'cancelled']
+  const status = allowedStatuses.includes(requestedStatus) ? requestedStatus : 'all'
+  const requestedPageSize = Number(typeof params.pageSize === 'string' ? params.pageSize : 20)
+  const pageSize = [10, 20, 50].includes(requestedPageSize) ? requestedPageSize : 20
+  const requestedPage = Math.max(1, Number(typeof params.page === 'string' ? params.page : 1) || 1)
+
+  const where: Prisma.OrderWhereInput = {
+    ...(status !== 'all' ? { status } : {}),
+    ...(query
+      ? {
+          OR: [
+            { number: { contains: query, mode: 'insensitive' } },
+            { client: { fullName: { contains: query, mode: 'insensitive' } } },
+            { client: { primaryPhone: { contains: query } } },
+            { client: { additionalPhone: { contains: query } } },
+          ],
+        }
+      : {}),
+  }
+
+  const totalOrders = await prisma.order.count({ where })
+  const totalPages = Math.max(1, Math.ceil(totalOrders / pageSize))
+  const page = Math.min(requestedPage, totalPages)
+
   const orders = await prisma.order.findMany({
     orderBy: [
       { createdAt: 'desc' }
     ],
+    where,
+    skip: (page - 1) * pageSize,
+    take: pageSize,
     include: {
       client: true,
       creator: {
@@ -84,18 +121,33 @@ export default async function OrdersPage() {
     orderBy: { sortOrder: 'asc' },
   })
 
+  const [statusCounts, revenueRows] = await Promise.all([
+    prisma.order.groupBy({ by: ['status'], _count: { id: true } }),
+    prisma.$queryRaw<{ revenue: bigint }[]>`
+      SELECT COALESCE(SUM(total_price - discount + delivery_price + assembly_price), 0)::bigint AS revenue
+      FROM orders
+      WHERE status <> 'cancelled'
+    `,
+  ])
+  const counts = Object.fromEntries(statusCounts.map((entry) => [entry.status, entry._count.id]))
+  const summary = {
+    active: statusCounts
+      .filter((entry) => !['delivered', 'cancelled'].includes(entry.status))
+      .reduce((sum, entry) => sum + entry._count.id, 0),
+    delivered: counts.delivered || 0,
+    revenue: Number(revenueRows[0]?.revenue ?? 0) / 100,
+    statuses: counts,
+  }
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-[var(--text-primary)] flex items-center gap-2">
-            <ShoppingCart className="h-5 w-5 text-[var(--accent-primary)]" />
-            Реестр заказов
-          </h1>
-          <p className="text-xs font-normal text-[var(--text-secondary)] mt-1">
-            Оформление новых заказов, отслеживание этапов производства, складской логистики и отгрузки
-          </p>
-        </div>
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-[-0.035em] text-[var(--text-primary)]">
+          Реестр заказов
+        </h1>
+        <p className="mt-1 text-xs font-normal text-[var(--text-secondary)]">
+          Оформление новых заказов, отслеживание этапов производства, складской логистики и отгрузки
+        </p>
       </div>
 
       <OrderManagement 
@@ -107,6 +159,13 @@ export default async function OrdersPage() {
         drivers={drivers}
         sellers={sellers}
         currentUserId={user.id}
+        initialQuery={query}
+        initialStatus={status}
+        page={page}
+        pageSize={pageSize}
+        totalPages={totalPages}
+        totalOrders={totalOrders}
+        summary={summary}
       />
     </div>
   )

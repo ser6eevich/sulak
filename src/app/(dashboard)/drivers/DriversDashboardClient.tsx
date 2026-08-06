@@ -1,26 +1,34 @@
 'use client'
 
-import { useState } from 'react'
-import { 
-  createDriverAction, 
-  completeDeliveryFromDriversAction, 
-  returnToWarehouseFromDriversAction 
+import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import {
+  createDriverAction,
+  completeDeliveryFromDriversAction,
+  returnToWarehouseFromDriversAction,
 } from './actions'
-import { 
-  Search, 
-  User, 
-  Phone, 
-  Plus, 
-  X, 
-  Truck, 
-  CheckCircle2, 
+import {
+  AlertCircle,
   AlertTriangle,
-  Calendar,
+  ArrowLeft,
+  ArrowRight,
+  CalendarDays,
+  CheckCircle2,
+  CircleUserRound,
+  KeyRound,
   MapPin,
-  ChevronRight,
-  UserCheck,
-  Check
+  Package,
+  Phone,
+  Plus,
+  Route,
+  Search,
+  Truck,
+  UserRound,
+  UsersRound,
+  X,
 } from 'lucide-react'
+
+const ORDERS_PER_PAGE = 5
 
 interface Variant {
   sku: string
@@ -71,416 +79,686 @@ interface DriversDashboardClientProps {
   userRole: string
 }
 
-export default function DriversDashboardClient({ drivers: initialDrivers, userRole }: DriversDashboardClientProps) {
-  const [drivers, setDrivers] = useState<Driver[]>(initialDrivers)
-  const [selectedDriverId, setSelectedDriverId] = useState<string>(initialDrivers[0]?.id || '')
-  const [search, setSearch] = useState('')
+type DriverFilter = 'all' | 'active' | 'idle'
+type OrderFilter = 'all' | 'delivery' | 'delivered'
 
-  // Создание нового водителя
+function pluralizeRussian(count: number, one: string, few: string, many: string) {
+  const mod10 = count % 10
+  const mod100 = count % 100
+  if (mod10 === 1 && mod100 !== 11) return one
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few
+  return many
+}
+
+function orderLabel(order: Order) {
+  return order.number ? `№${order.number}` : `#${order.id.slice(-6).toUpperCase()}`
+}
+
+export default function DriversDashboardClient({ drivers, userRole }: DriversDashboardClientProps) {
+  const router = useRouter()
+  const firstActiveDriver = drivers.find(driver => driver.orders.some(order => order.status === 'delivery'))
+  const [selectedDriverId, setSelectedDriverId] = useState(firstActiveDriver?.id || drivers[0]?.id || '')
+  const [search, setSearch] = useState('')
+  const [driverFilter, setDriverFilter] = useState<DriverFilter>('all')
+  const [orderFilter, setOrderFilter] = useState<OrderFilter>('all')
+  const [orderPage, setOrderPage] = useState(1)
+
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [modalFullName, setModalFullName] = useState('')
   const [modalPhone, setModalPhone] = useState('')
   const [modalDirection, setModalDirection] = useState('')
   const [modalPassword, setModalPassword] = useState('')
   const [createLoading, setCreateLoading] = useState(false)
+  const [createError, setCreateError] = useState('')
 
-  // Попвер действий для конкретного заказа
-  const [activeAction, setActiveAction] = useState<{ orderId: string; type: 'delivered' | 'warehouse' } | null>(null)
+  const [activeAction, setActiveAction] = useState<{ order: Order; type: 'delivered' | 'warehouse' } | null>(null)
   const [actionComment, setActionComment] = useState('')
   const [actionLoading, setActionLoading] = useState(false)
+  const [actionError, setActionError] = useState('')
 
-  const selectedDriver = drivers.find(d => d.id === selectedDriverId)
+  const activeDriversCount = drivers.filter(driver => driver.orders.some(order => order.status === 'delivery')).length
+  const activeDeliveriesCount = drivers.reduce(
+    (sum, driver) => sum + driver.orders.filter(order => order.status === 'delivery').length,
+    0
+  )
+  const deliveredCount = drivers.reduce(
+    (sum, driver) => sum + driver.orders.filter(order => order.status === 'delivered').length,
+    0
+  )
 
-  const filteredDrivers = drivers.filter(d => {
-    const s = search.toLowerCase()
-    return d.fullName.toLowerCase().includes(s) || (d.phone && d.phone.includes(s)) || (d.direction && d.direction.toLowerCase().includes(s))
-  })
+  const filteredDrivers = useMemo(() => {
+    const query = search.trim().toLowerCase()
 
-  const handleCreateDriver = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!modalFullName || !modalPhone) return
+    return drivers.filter(driver => {
+      const activeOrders = driver.orders.filter(order => order.status === 'delivery').length
+      const matchesFilter = driverFilter === 'all'
+        || (driverFilter === 'active' && activeOrders > 0)
+        || (driverFilter === 'idle' && activeOrders === 0)
+      const matchesSearch = !query
+        || driver.fullName.toLowerCase().includes(query)
+        || (driver.phone || '').toLowerCase().includes(query)
+        || (driver.direction || '').toLowerCase().includes(query)
+
+      return matchesFilter && matchesSearch
+    })
+  }, [driverFilter, drivers, search])
+
+  const effectiveSelectedDriverId = filteredDrivers.some(driver => driver.id === selectedDriverId)
+    ? selectedDriverId
+    : filteredDrivers[0]?.id || ''
+  const selectedDriver = drivers.find(driver => driver.id === effectiveSelectedDriverId)
+  const selectedOrders = useMemo(() => {
+    if (!selectedDriver) return []
+    if (orderFilter === 'all') return selectedDriver.orders
+    return selectedDriver.orders.filter(order => order.status === orderFilter)
+  }, [orderFilter, selectedDriver])
+  const orderPageCount = Math.max(1, Math.ceil(selectedOrders.length / ORDERS_PER_PAGE))
+  const orderPageStart = (orderPage - 1) * ORDERS_PER_PAGE
+  const visibleOrders = selectedOrders.slice(orderPageStart, orderPageStart + ORDERS_PER_PAGE)
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (activeAction) {
+        setActiveAction(null)
+        setActionError('')
+      } else if (createModalOpen) {
+        setCreateModalOpen(false)
+        setCreateError('')
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [activeAction, createModalOpen])
+
+  const closeCreateModal = () => {
+    setCreateModalOpen(false)
+    setCreateError('')
+  }
+
+  const closeActionModal = () => {
+    setActiveAction(null)
+    setActionComment('')
+    setActionError('')
+  }
+
+  const handleCreateDriver = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!modalFullName.trim() || !modalPhone.trim()) return
 
     setCreateLoading(true)
+    setCreateError('')
     const result = await createDriverAction(
       modalFullName,
       modalPhone,
-      modalDirection
+      modalDirection,
+      modalPassword
     )
     setCreateLoading(false)
 
     if (result.error) {
-      alert(result.error)
-    } else if (result.success) {
-      window.location.reload()
+      setCreateError(result.error)
+      return
     }
+
+    closeCreateModal()
+    router.refresh()
   }
 
-  const handleConfirmAction = async (orderId: string) => {
+  const handleConfirmAction = async (event: React.FormEvent) => {
+    event.preventDefault()
     if (!activeAction) return
 
-    setActionLoading(true)
-    let result
-    if (activeAction.type === 'delivered') {
-      result = await completeDeliveryFromDriversAction(orderId, actionComment)
-    } else {
-      result = await returnToWarehouseFromDriversAction(orderId, actionComment)
+    if (activeAction.type === 'warehouse' && !actionComment.trim()) {
+      setActionError('Укажите причину возврата заказа на склад.')
+      return
     }
+
+    setActionLoading(true)
+    setActionError('')
+    const result = activeAction.type === 'delivered'
+      ? await completeDeliveryFromDriversAction(activeAction.order.id, actionComment)
+      : await returnToWarehouseFromDriversAction(activeAction.order.id, actionComment)
     setActionLoading(false)
 
     if (result.error) {
-      alert(result.error)
-    } else {
-      setActiveAction(null)
-      setActionComment('')
-      window.location.reload()
+      setActionError(result.error)
+      return
     }
+
+    closeActionModal()
+    router.refresh()
+  }
+
+  const openActionModal = (order: Order, type: 'delivered' | 'warehouse') => {
+    setActiveAction({ order, type })
+    setActionComment('')
+    setActionError('')
   }
 
   return (
-    <div className="grid gap-4 md:gap-6 md:grid-cols-3 items-start min-w-0 max-w-full overflow-hidden">
-      {/* Левая панель: Список водителей */}
-      <div className="md:col-span-1 space-y-4 min-w-0 max-w-full">
-        <div className="erp-card p-4 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wider flex items-center gap-1.5">
-              <Truck className="h-4 w-4 text-[var(--accent-primary)]" />
-              Экипажи водителей
-            </h2>
-            {['admin', 'owner'].includes(userRole) && (
-              <button
-                onClick={() => setCreateModalOpen(true)}
-                className="erp-button-primary inline-flex items-center gap-1 text-[11px] cursor-pointer"
-              >
-                <Plus className="h-3.5 w-3.5" /> Добавить
-              </button>
-            )}
-          </div>
-
-          {/* Поиск водителей */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-tertiary)] pointer-events-none z-10" />
-            <input
-              type="text"
-              placeholder="Поиск по ФИО, телефону..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="erp-input w-full !pl-9 font-normal"
-            />
-          </div>
-
-          <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-            {filteredDrivers.length === 0 ? (
-              <div className="text-center py-6 text-xs text-[var(--text-tertiary)] font-normal">
-                Водители не найдены
-              </div>
-            ) : (
-              filteredDrivers.map(driver => {
-                const isSelected = driver.id === selectedDriverId
-                const activeDeliveries = driver.orders.filter(o => o.status === 'delivery').length
-
-                return (
-                  <div
-                    key={driver.id}
-                    onClick={() => setSelectedDriverId(driver.id)}
-                    className={`p-3.5 rounded-lg border transition-all cursor-pointer relative overflow-hidden flex items-center justify-between ${
-                      isSelected
-                        ? 'border-[var(--accent-primary)] bg-[var(--accent-soft)] shadow-sm'
-                        : 'border-[var(--border-primary)] bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)]'
-                    }`}
-                  >
-                    {/* Боковая вертикальная полоска для выбранного водителя */}
-                    {isSelected && (
-                      <span className="absolute left-0 top-0 bottom-0 w-1 bg-[var(--accent-primary)]" />
-                    )}
-
-                    <div className="space-y-1 min-w-0 pl-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className={`text-xs font-semibold truncate ${isSelected ? 'text-[var(--accent-text)]' : 'text-[var(--text-primary)]'}`}>
-                          {driver.fullName}
-                        </h4>
-                        {isSelected && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-[var(--accent-primary)] text-white shadow-xs">
-                            <Check className="h-3 w-3 stroke-[3]" /> Выбран
-                          </span>
-                        )}
-                      </div>
-
-                      {driver.phone && (
-                        <div className="flex items-center gap-1 text-[11px] text-[var(--text-secondary)] font-mono">
-                          <Phone className="h-3 w-3 shrink-0 text-[var(--text-tertiary)]" />
-                          <span>{driver.phone}</span>
-                        </div>
-                      )}
-                      {driver.direction && (
-                        <div className="flex items-center gap-1 text-[11px] text-[var(--accent-text)] font-medium">
-                          <MapPin className="h-3 w-3 shrink-0 text-[var(--accent-primary)]" />
-                          <span>Направление: {driver.direction}</span>
-                        </div>
-                      )}
-                      <div className="text-[10px] font-medium text-[var(--text-tertiary)] flex items-center gap-1.5 pt-0.5">
-                        <Truck className="h-3.5 w-3.5 text-[var(--accent-primary)]" />
-                        <span className={activeDeliveries > 0 ? 'font-semibold text-[var(--warning)]' : ''}>
-                          {activeDeliveries} активных доставок
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronRight className={`h-4 w-4 shrink-0 transition-transform ${isSelected ? 'text-[var(--accent-primary)] translate-x-0.5' : 'text-[var(--text-tertiary)]'}`} />
-                  </div>
-                )
-              })
-            )}
+    <div className="min-w-0 space-y-4">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Сводка по экипажам">
+        <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] p-4 shadow-xs">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Экипажей</p>
+              <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--text-primary)]">{drivers.length}</p>
+              <p className="mt-1 text-[10px] text-[var(--text-tertiary)]">Активные профили</p>
+            </div>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+              <UsersRound className="h-[18px] w-[18px]" strokeWidth={1.8} />
+            </span>
           </div>
         </div>
-      </div>
 
-      {/* Правая панель: Доставки выбранного водителя */}
-      <div className="md:col-span-2 space-y-4 min-w-0 max-w-full overflow-hidden">
-        {selectedDriver ? (
-          <div className="erp-card p-4 space-y-5">
-            {/* Хедер карточки водителя */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[var(--border-primary)]">
-              <div className="space-y-1">
-                <h3 className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2">
-                  <UserCheck className="h-4.5 w-4.5 text-[var(--accent-primary)]" />
-                  {selectedDriver.fullName}
-                </h3>
-                <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--text-secondary)]">
-                  {selectedDriver.phone && (
-                    <span className="flex items-center gap-1 font-mono">
-                      <Phone className="h-3.5 w-3.5" /> {selectedDriver.phone}
-                    </span>
-                  )}
-                  {selectedDriver.direction && (
-                    <span className="flex items-center gap-1 text-[var(--accent-text)] font-normal">
-                      <MapPin className="h-3.5 w-3.5" /> Направление: {selectedDriver.direction}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="bg-[var(--bg-surface-secondary)] px-3.5 py-2 rounded-md border border-[var(--border-primary)] flex items-center gap-3">
-                <div>
-                  <span className="text-[9px] text-[var(--text-tertiary)] block font-medium uppercase tracking-wider">Всего в рейсе</span>
-                  <span className="text-xs font-semibold text-[var(--text-primary)]">
-                    {selectedDriver.orders.length} заказов
-                  </span>
-                </div>
-              </div>
+        <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] p-4 shadow-xs">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-tertiary)]">На линии</p>
+              <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--text-primary)]">{activeDriversCount}</p>
+              <p className="mt-1 text-[10px] text-[var(--text-tertiary)]">С заказами в пути</p>
             </div>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--warning-soft)] text-[var(--warning)]">
+              <Truck className="h-[18px] w-[18px]" strokeWidth={1.8} />
+            </span>
+          </div>
+        </div>
 
-            {/* Маршрутный лист */}
-            <div className="space-y-3">
-              <h4 className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider flex items-center gap-1.5">
-                <Truck className="h-3.5 w-3.5 text-[var(--accent-primary)]" />
-                Маршрутный лист и история выездов
-              </h4>
+        <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] p-4 shadow-xs">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Заказов в пути</p>
+              <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--text-primary)]">{activeDeliveriesCount}</p>
+              <p className="mt-1 text-[10px] text-[var(--text-tertiary)]">Текущая нагрузка</p>
+            </div>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+              <Route className="h-[18px] w-[18px]" strokeWidth={1.8} />
+            </span>
+          </div>
+        </div>
 
-              {selectedDriver.orders.length === 0 ? (
-                <div className="text-center py-10 text-[var(--text-tertiary)] text-xs border border-[var(--border-primary)] rounded-md bg-[var(--bg-surface-secondary)]">
-                  У этого водителя нет активных и завершенных доставок
-                </div>
-              ) : (
-                selectedDriver.orders.map(order => {
-                  const shortId = order.id.slice(-6).toUpperCase()
-                  const isActionActive = activeAction?.orderId === order.id
-                  const isDelivered = order.status === 'delivered'
+        <div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] p-4 shadow-xs">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-tertiary)]">Доставлено</p>
+              <p className="mt-2 text-2xl font-semibold tracking-[-0.04em] text-[var(--text-primary)]">{deliveredCount}</p>
+              <p className="mt-1 text-[10px] text-[var(--text-tertiary)]">В истории экипажей</p>
+            </div>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--success-soft)] text-[var(--success)]">
+              <CheckCircle2 className="h-[18px] w-[18px]" strokeWidth={1.8} />
+            </span>
+          </div>
+        </div>
+      </section>
 
-                  return (
-                    <div 
-                      key={order.id} 
-                      className={`border rounded-md overflow-hidden flex flex-col transition-all ${
-                        isDelivered 
-                          ? 'border-[var(--success)]/30 bg-[var(--success-soft)]/20' 
-                          : 'border-[var(--border-primary)] bg-[var(--bg-surface)]'
-                      }`}
-                    >
-                      {/* Шапка карточки заказа */}
-                      <div className="bg-[var(--bg-table-header)] px-3.5 py-2.5 border-b border-[var(--border-primary)] flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-medium text-[var(--text-primary)]">
-                            {order.number ? `№${order.number}` : `#${shortId}`}
-                          </span>
-                          <span className="text-[var(--border-strong)]">|</span>
-                          <span className="flex items-center gap-1 text-[var(--text-tertiary)]">
-                            <Calendar className="h-3 w-3" />
-                            {new Date(order.createdAt).toLocaleDateString('ru-RU')}
-                          </span>
-                        </div>
-                        <span className={`inline-flex items-center rounded px-2 py-0.5 text-[10px] font-medium border ${
-                          isDelivered 
-                            ? 'bg-[var(--success-soft)] text-[var(--success)] border-[var(--success)]/20' 
-                            : 'bg-[var(--warning-soft)] text-[var(--warning)] border-[var(--warning)]/20'
-                        }`}>
-                          {isDelivered ? 'Доставлен' : 'В пути'}
-                        </span>
-                      </div>
-
-                      {/* Детали заказа */}
-                      <div className="p-4 space-y-3 text-xs">
-                        <div className="grid gap-2.5 sm:grid-cols-2">
-                          <div>
-                            <span className="text-[var(--text-tertiary)] font-medium block text-[9px] uppercase tracking-wider">Получатель</span>
-                            <span className="font-medium text-[var(--text-primary)]">{order.client.fullName}</span>
-                          </div>
-                          <div>
-                            <span className="text-[var(--text-tertiary)] font-medium block text-[9px] uppercase tracking-wider">Телефоны</span>
-                            <span className="font-mono text-[var(--text-secondary)]">{order.client.primaryPhone}</span>
-                            {order.client.additionalPhone && (
-                              <span className="font-mono text-[var(--text-tertiary)] block text-[10px] mt-0.5">{order.client.additionalPhone}</span>
-                            )}
-                          </div>
-                          <div className="sm:col-span-2">
-                            <span className="text-[var(--text-tertiary)] font-medium block text-[9px] uppercase tracking-wider">Адрес доставки</span>
-                            <span className="font-medium text-[var(--text-primary)] flex items-center gap-1 mt-0.5">
-                              <MapPin className="h-3.5 w-3.5 text-[var(--accent-primary)] shrink-0" />
-                              {order.deliveryAddress || 'Адрес не указан'}
-                            </span>
-                          </div>
-                          {order.comment && (
-                            <div className="sm:col-span-2 bg-[var(--bg-surface-secondary)] p-2.5 rounded-md border border-[var(--border-primary)] text-[11px] text-[var(--text-secondary)]">
-                              <span className="font-medium text-[var(--text-tertiary)] block text-[9px] uppercase tracking-wider mb-0.5">Комментарий менеджера</span>
-                              {order.comment}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Изделия к доставке */}
-                        <div className="border-t border-[var(--border-primary)] pt-2.5 space-y-1.5">
-                          <span className="text-[var(--text-tertiary)] font-medium block text-[9px] uppercase tracking-wider">Изделия в заказе</span>
-                          <div className="space-y-1">
-                            {order.items.map(item => (
-                              <div key={item.id} className="flex justify-between items-center text-xs">
-                                <span className="font-normal text-[var(--text-primary)]">{item.variant.product.name} (SKU: {item.variant.sku})</span>
-                                <span className="font-semibold text-[var(--accent-primary)]">{item.quantity} шт</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Кнопки завершения/возврата */}
-                        {!isDelivered && (
-                          <div className="pt-2 border-t border-[var(--border-primary)]">
-                            {isActionActive ? (
-                              <div className="space-y-2.5 bg-[var(--bg-surface-secondary)] p-3 rounded-md border border-[var(--border-primary)]">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-xs font-semibold text-[var(--text-primary)]">
-                                    {activeAction.type === 'delivered' ? 'Подтверждение доставки' : 'Возврат заказа на склад'}
-                                  </span>
-                                  <button onClick={() => setActiveAction(null)} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] cursor-pointer">
-                                    <X className="h-4 w-4" />
-                                  </button>
-                                </div>
-                                <input
-                                  type="text"
-                                  placeholder="Комментарий водителя (необязательно)..."
-                                  value={actionComment}
-                                  onChange={e => setActionComment(e.target.value)}
-                                  className="erp-input w-full font-normal"
-                                />
-                                <div className="flex gap-2">
-                                  <button
-                                    onClick={() => handleConfirmAction(order.id)}
-                                    disabled={actionLoading}
-                                    className="erp-button-primary flex-1 cursor-pointer disabled:opacity-50 text-xs"
-                                  >
-                                    {actionLoading ? 'Сохранение...' : 'Подтвердить'}
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="flex flex-wrap gap-2">
-                                <button
-                                  onClick={() => setActiveAction({ orderId: order.id, type: 'delivered' })}
-                                  className="erp-button-primary inline-flex items-center gap-1.5 cursor-pointer text-xs"
-                                >
-                                  <CheckCircle2 className="h-3.5 w-3.5" /> Доставлен
-                                </button>
-                                <button
-                                  onClick={() => setActiveAction({ orderId: order.id, type: 'warehouse' })}
-                                  className="erp-button-secondary inline-flex items-center gap-1.5 cursor-pointer text-xs text-[var(--danger)] hover:bg-[var(--danger-soft)]"
-                                >
-                                  <AlertTriangle className="h-3.5 w-3.5" /> Вернуть на склад
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })
+      <section className="grid min-w-0 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <aside className="min-w-0 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] shadow-xs">
+          <div className="border-b border-[var(--border-primary)] p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-[var(--text-primary)]">Состав экипажей</h2>
+                <p className="mt-1 text-[10px] text-[var(--text-tertiary)]">Контакты и текущая загрузка</p>
+              </div>
+              {['admin', 'owner'].includes(userRole) && (
+                <button
+                  type="button"
+                  onClick={() => setCreateModalOpen(true)}
+                  className="erp-button-primary inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap text-xs"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Добавить
+                </button>
               )}
             </div>
-          </div>
-        ) : (
-          <div className="erp-card p-12 text-center text-[var(--text-tertiary)] font-normal text-xs">
-            Выберите водителя слева для просмотра маршрутного листа
-          </div>
-        )}
-      </div>
 
-      {/* Модальное окно добавления нового водителя */}
-      {createModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[var(--bg-overlay)] backdrop-blur-xs">
-          <div className="bg-[var(--bg-surface)] rounded-lg shadow-md w-full max-w-md overflow-hidden border border-[var(--border-primary)]">
-            <div className="flex h-12 items-center justify-between border-b border-[var(--border-primary)] px-4">
-              <h3 className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wider">Новая карточка водителя</h3>
-              <button onClick={() => setCreateModalOpen(false)} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] cursor-pointer text-lg">&times;</button>
+            <div className="relative mt-4">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-tertiary)]" />
+              <input
+                type="search"
+                aria-label="Поиск экипажа"
+                placeholder="ФИО, телефон, направление"
+                value={search}
+                onChange={event => {
+                  setSearch(event.target.value)
+                  setOrderPage(1)
+                }}
+                className="erp-input w-full !pl-9 font-normal"
+              />
             </div>
-            <form onSubmit={handleCreateDriver} className="p-4 space-y-3">
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider">ФИО Водителя *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Билал Дадаев"
-                  value={modalFullName}
-                  onChange={e => setModalFullName(e.target.value)}
-                  className="erp-input w-full font-normal"
-                />
-              </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider">Номер телефона</label>
-                <input
-                  type="text"
-                  placeholder="+7 (928) 000-00-00"
-                  value={modalPhone}
-                  onChange={e => setModalPhone(e.target.value)}
-                  className="erp-input w-full font-mono"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider">Направление рейсов</label>
-                <input
-                  type="text"
-                  placeholder="Дагестан / Чечня / Ингушетия"
-                  value={modalDirection}
-                  onChange={e => setModalDirection(e.target.value)}
-                  className="erp-input w-full font-normal"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider">Пароль авторизации (по умолчанию 12345)</label>
-                <input
-                  type="password"
-                  placeholder="12345"
-                  value={modalPassword}
-                  onChange={e => setModalPassword(e.target.value)}
-                  className="erp-input w-full font-mono"
-                />
-              </div>
-
-              <div className="pt-3 flex gap-2">
-                <button type="button" onClick={() => setCreateModalOpen(false)} className="erp-button-secondary flex-1 cursor-pointer">Отмена</button>
-                <button type="submit" disabled={createLoading} className="erp-button-primary flex-1 cursor-pointer disabled:opacity-50">
-                  {createLoading ? 'Сохранение...' : 'Создать водителя'}
+            <div className="mt-3 grid grid-cols-3 gap-1 rounded-lg bg-[var(--bg-surface-secondary)] p-1" aria-label="Фильтр экипажей">
+              {([
+                ['all', 'Все'],
+                ['active', 'На линии'],
+                ['idle', 'Свободны'],
+              ] as const).map(([value, label]) => (
+                <button
+                  type="button"
+                  key={value}
+                  onClick={() => {
+                    setDriverFilter(value)
+                    setOrderPage(1)
+                  }}
+                  className={`min-w-0 whitespace-nowrap rounded-md px-2 py-2 text-[10px] font-medium transition-colors ${
+                    driverFilter === value
+                      ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-xs'
+                      : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                  }`}
+                >
+                  {label}
                 </button>
-              </div>
-            </form>
+              ))}
+            </div>
           </div>
+
+          <div className="max-h-[640px] space-y-1.5 overflow-y-auto p-2.5">
+            {filteredDrivers.length === 0 ? (
+              <div className="px-4 py-10 text-center">
+                <CircleUserRound className="mx-auto h-6 w-6 text-[var(--text-tertiary)]" strokeWidth={1.6} />
+                <p className="mt-3 text-xs font-medium text-[var(--text-secondary)]">Экипажи не найдены</p>
+                <p className="mt-1 text-[10px] text-[var(--text-tertiary)]">Измените запрос или фильтр</p>
+              </div>
+            ) : filteredDrivers.map(driver => {
+              const isSelected = driver.id === effectiveSelectedDriverId
+              const activeOrders = driver.orders.filter(order => order.status === 'delivery').length
+
+              return (
+                <button
+                  type="button"
+                  key={driver.id}
+                  onClick={() => {
+                    setSelectedDriverId(driver.id)
+                    setOrderPage(1)
+                  }}
+                  className={`w-full rounded-lg border px-3 py-3 text-left transition-colors ${
+                    isSelected
+                      ? 'border-[var(--accent-primary)] bg-[var(--accent-soft)]'
+                      : 'border-transparent hover:border-[var(--border-primary)] hover:bg-[var(--bg-surface-hover)]'
+                  }`}
+                >
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className={`truncate text-xs font-semibold ${isSelected ? 'text-[var(--accent-text)]' : 'text-[var(--text-primary)]'}`}>
+                        {driver.fullName}
+                      </p>
+                      <p className="mt-1 truncate font-mono text-[10px] text-[var(--text-secondary)]">
+                        {driver.phone || 'Телефон не указан'}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-semibold ${
+                      activeOrders > 0
+                        ? 'bg-[var(--warning-soft)] text-[var(--warning)]'
+                        : 'bg-[var(--bg-surface-secondary)] text-[var(--text-tertiary)]'
+                    }`}>
+                      {activeOrders > 0 ? `${activeOrders} в пути` : 'Свободен'}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex min-w-0 items-center gap-1.5 text-[10px] text-[var(--text-tertiary)]">
+                    <MapPin className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{driver.direction || 'Направление не указано'}</span>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </aside>
+
+        <div className="min-w-0 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] shadow-xs">
+          {selectedDriver ? (
+            <>
+              <header className="border-b border-[var(--border-primary)] p-4 sm:p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+                        <UserRound className="h-5 w-5" strokeWidth={1.7} />
+                      </span>
+                      <div className="min-w-0">
+                        <h2 className="truncate text-base font-semibold tracking-[-0.02em] text-[var(--text-primary)]">{selectedDriver.fullName}</h2>
+                        <p className="mt-0.5 text-[10px] text-[var(--text-tertiary)]">Карточка экипажа и маршрутный лист</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-col gap-2 text-xs text-[var(--text-secondary)] sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-5">
+                      {selectedDriver.phone && (
+                        <a href={`tel:${selectedDriver.phone}`} className="inline-flex items-center gap-1.5 whitespace-nowrap hover:text-[var(--accent-primary)]">
+                          <Phone className="h-3.5 w-3.5" />
+                          <span className="font-mono">{selectedDriver.phone}</span>
+                        </a>
+                      )}
+                      <span className="inline-flex min-w-0 items-center gap-1.5">
+                        <MapPin className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{selectedDriver.direction || 'Направление не указано'}</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 sm:w-auto">
+                    <div className="min-w-[112px] rounded-lg bg-[var(--bg-surface-secondary)] px-3 py-2.5">
+                      <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--text-tertiary)]">В пути</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
+                        {selectedDriver.orders.filter(order => order.status === 'delivery').length}
+                      </p>
+                    </div>
+                    <div className="min-w-[112px] rounded-lg bg-[var(--bg-surface-secondary)] px-3 py-2.5">
+                      <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--text-tertiary)]">Всего рейсов</p>
+                      <p className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{selectedDriver.orders.length}</p>
+                    </div>
+                  </div>
+                </div>
+              </header>
+
+              <div className="p-4 sm:p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-[var(--text-primary)]">Маршрутный лист</h3>
+                    <p className="mt-1 text-[10px] text-[var(--text-tertiary)]">Текущие доставки и завершённые рейсы</p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1 rounded-lg bg-[var(--bg-surface-secondary)] p-1" aria-label="Фильтр рейсов">
+                    {([
+                      ['all', 'Все'],
+                      ['delivery', 'В пути'],
+                      ['delivered', 'Доставлены'],
+                    ] as const).map(([value, label]) => (
+                      <button
+                        type="button"
+                        key={value}
+                        onClick={() => {
+                          setOrderFilter(value)
+                          setOrderPage(1)
+                        }}
+                        className={`whitespace-nowrap rounded-md px-3 py-2 text-[10px] font-medium transition-colors ${
+                          orderFilter === value
+                            ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-xs'
+                            : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {visibleOrders.length === 0 ? (
+                  <div className="mt-4 rounded-lg border border-dashed border-[var(--border-primary)] bg-[var(--bg-surface-secondary)] px-5 py-14 text-center">
+                    <Route className="mx-auto h-7 w-7 text-[var(--text-tertiary)]" strokeWidth={1.5} />
+                    <p className="mt-3 text-xs font-medium text-[var(--text-secondary)]">В этом разделе рейсов нет</p>
+                    <p className="mt-1 text-[10px] text-[var(--text-tertiary)]">Назначенные заказы появятся здесь автоматически</p>
+                  </div>
+                ) : (
+                  <div className="mt-4 space-y-3">
+                    {visibleOrders.map(order => {
+                      const isDelivered = order.status === 'delivered'
+                      const totalItems = order.items.reduce((sum, item) => sum + item.quantity, 0)
+
+                      return (
+                        <article key={order.id} className="overflow-hidden rounded-lg border border-[var(--border-primary)] bg-[var(--bg-surface)]">
+                          <div className="flex flex-col gap-3 border-b border-[var(--border-primary)] bg-[var(--bg-table-header)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex flex-wrap items-center gap-2.5">
+                              <span className="font-mono text-xs font-semibold text-[var(--text-primary)]">{orderLabel(order)}</span>
+                              <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[10px] text-[var(--text-tertiary)]">
+                                <CalendarDays className="h-3.5 w-3.5" />
+                                {new Date(order.createdAt).toLocaleDateString('ru-RU')}
+                              </span>
+                              <span className={`rounded-full px-2.5 py-1 text-[9px] font-semibold ${
+                                isDelivered
+                                  ? 'bg-[var(--success-soft)] text-[var(--success)]'
+                                  : 'bg-[var(--warning-soft)] text-[var(--warning)]'
+                              }`}>
+                                {isDelivered ? 'Доставлен' : 'В пути'}
+                              </span>
+                            </div>
+                            <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[10px] font-medium text-[var(--text-secondary)]">
+                              <Package className="h-3.5 w-3.5" />
+                              {order.items.length} {pluralizeRussian(order.items.length, 'позиция', 'позиции', 'позиций')} · {totalItems} шт.
+                            </span>
+                          </div>
+
+                          <div className="p-4">
+                            <div className="grid gap-4 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                              <div className="min-w-0 space-y-3">
+                                <div>
+                                  <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--text-tertiary)]">Получатель</p>
+                                  <p className="mt-1 truncate text-xs font-semibold text-[var(--text-primary)]">{order.client.fullName}</p>
+                                  <a href={`tel:${order.client.primaryPhone}`} className="mt-1 inline-flex items-center gap-1.5 whitespace-nowrap font-mono text-[10px] text-[var(--text-secondary)] hover:text-[var(--accent-primary)]">
+                                    <Phone className="h-3 w-3" />
+                                    {order.client.primaryPhone}
+                                  </a>
+                                </div>
+                                <div>
+                                  <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--text-tertiary)]">Адрес доставки</p>
+                                  <p className="mt-1 flex items-start gap-1.5 text-[11px] leading-5 text-[var(--text-secondary)]">
+                                    <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--accent-primary)]" />
+                                    <span>{order.deliveryAddress || 'Адрес не указан'}</span>
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="min-w-0 rounded-lg bg-[var(--bg-surface-secondary)] p-3">
+                                <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--text-tertiary)]">Состав заказа</p>
+                                <div className="mt-2 space-y-2">
+                                  {order.items.map(item => (
+                                    <div key={item.id} className="flex min-w-0 items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <p className="truncate text-[11px] font-medium text-[var(--text-primary)]">{item.variant.product.name}</p>
+                                        <p className="mt-0.5 truncate font-mono text-[9px] text-[var(--text-tertiary)]">SKU {item.variant.sku}</p>
+                                      </div>
+                                      <span className="shrink-0 whitespace-nowrap text-[10px] font-semibold text-[var(--text-secondary)]">{item.quantity} шт.</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+
+                            {order.comment && (
+                              <div className="mt-3 rounded-lg border border-[var(--border-primary)] px-3 py-2.5 text-[10px] leading-5 text-[var(--text-secondary)]">
+                                <span className="font-semibold text-[var(--text-primary)]">Комментарий: </span>
+                                {order.comment}
+                              </div>
+                            )}
+
+                            {!isDelivered && (
+                              <div className="mt-4 flex flex-col gap-2 border-t border-[var(--border-primary)] pt-3 sm:flex-row sm:justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => openActionModal(order, 'warehouse')}
+                                  className="erp-button-secondary inline-flex items-center justify-center gap-1.5 whitespace-nowrap text-xs text-[var(--danger)] hover:bg-[var(--danger-soft)]"
+                                >
+                                  <AlertTriangle className="h-3.5 w-3.5" />
+                                  Вернуть на склад
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openActionModal(order, 'delivered')}
+                                  className="erp-button-primary inline-flex items-center justify-center gap-1.5 whitespace-nowrap text-xs"
+                                >
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                  Отметить доставленным
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </article>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {selectedOrders.length > ORDERS_PER_PAGE && (
+                  <div className="mt-4 flex items-center justify-between gap-3 border-t border-[var(--border-primary)] pt-4">
+                    <p className="text-[10px] text-[var(--text-tertiary)]">
+                      Показано {orderPageStart + 1}–{Math.min(orderPageStart + ORDERS_PER_PAGE, selectedOrders.length)} из {selectedOrders.length}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        aria-label="Предыдущая страница"
+                        disabled={orderPage === 1}
+                        onClick={() => setOrderPage(page => Math.max(1, page - 1))}
+                        className="erp-button-secondary inline-flex h-8 w-8 items-center justify-center !p-0 disabled:opacity-40"
+                      >
+                        <ArrowLeft className="h-3.5 w-3.5" />
+                      </button>
+                      <span className="min-w-12 text-center text-[10px] font-medium text-[var(--text-secondary)]">{orderPage} / {orderPageCount}</span>
+                      <button
+                        type="button"
+                        aria-label="Следующая страница"
+                        disabled={orderPage === orderPageCount}
+                        onClick={() => setOrderPage(page => Math.min(orderPageCount, page + 1))}
+                        className="erp-button-secondary inline-flex h-8 w-8 items-center justify-center !p-0 disabled:opacity-40"
+                      >
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="px-6 py-20 text-center">
+              <CircleUserRound className="mx-auto h-8 w-8 text-[var(--text-tertiary)]" strokeWidth={1.5} />
+              <p className="mt-3 text-xs font-medium text-[var(--text-secondary)]">Выберите экипаж</p>
+              <p className="mt-1 text-[10px] text-[var(--text-tertiary)]">Справа появится карточка и маршрутный лист</p>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {createModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] p-3 backdrop-blur-xs sm:p-6" role="presentation" onMouseDown={event => event.target === event.currentTarget && closeCreateModal()}>
+          <section role="dialog" aria-modal="true" aria-labelledby="create-driver-title" className="max-h-[calc(100vh-24px)] w-full max-w-xl overflow-y-auto rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] shadow-xl">
+            <header className="flex items-start justify-between gap-4 border-b border-[var(--border-primary)] px-5 py-4">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+                  <UserRound className="h-[18px] w-[18px]" />
+                </span>
+                <div className="min-w-0">
+                  <h2 id="create-driver-title" className="text-sm font-semibold text-[var(--text-primary)]">Новый экипаж</h2>
+                  <p className="mt-1 text-[10px] leading-4 text-[var(--text-tertiary)]">Создайте профиль водителя и укажите рабочее направление</p>
+                </div>
+              </div>
+              <button type="button" aria-label="Закрыть окно" onClick={closeCreateModal} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-tertiary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]">
+                <X className="h-4 w-4" />
+              </button>
+            </header>
+
+            <form onSubmit={handleCreateDriver}>
+              <div className="space-y-4 p-5">
+                {createError && (
+                  <div className="flex items-start gap-2 rounded-lg border border-[var(--danger)]/25 bg-[var(--danger-soft)] px-3 py-2.5 text-[11px] text-[var(--danger)]" role="alert">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    {createError}
+                  </div>
+                )}
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="space-y-1.5 sm:col-span-2">
+                    <span className="text-[10px] font-medium text-[var(--text-secondary)]">ФИО водителя</span>
+                    <span className="relative block">
+                      <UserRound className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-tertiary)]" />
+                      <input required autoFocus type="text" placeholder="Билал Дадаев" value={modalFullName} onChange={event => setModalFullName(event.target.value)} className="erp-input w-full !pl-9 font-normal" />
+                    </span>
+                  </label>
+
+                  <label className="space-y-1.5">
+                    <span className="text-[10px] font-medium text-[var(--text-secondary)]">Номер телефона</span>
+                    <span className="relative block">
+                      <Phone className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-tertiary)]" />
+                      <input required type="tel" placeholder="+7 (928) 000-00-00" value={modalPhone} onChange={event => setModalPhone(event.target.value)} className="erp-input w-full !pl-9 font-mono" />
+                    </span>
+                  </label>
+
+                  <label className="space-y-1.5">
+                    <span className="text-[10px] font-medium text-[var(--text-secondary)]">Направление рейсов</span>
+                    <span className="relative block">
+                      <MapPin className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-tertiary)]" />
+                      <input type="text" placeholder="Дагестан, Чечня" value={modalDirection} onChange={event => setModalDirection(event.target.value)} className="erp-input w-full !pl-9 font-normal" />
+                    </span>
+                  </label>
+                </div>
+
+                <label className="space-y-1.5">
+                  <span className="text-[10px] font-medium text-[var(--text-secondary)]">Временный пароль</span>
+                  <span className="relative block">
+                    <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-tertiary)]" />
+                    <input required minLength={10} type="password" placeholder="Минимум 10 символов, буквы и цифры" value={modalPassword} onChange={event => setModalPassword(event.target.value)} className="erp-input w-full !pl-9 font-mono" />
+                  </span>
+                  <span className="block text-[9px] leading-4 text-[var(--text-tertiary)]">Водитель сможет заменить пароль после первого входа</span>
+                </label>
+              </div>
+
+              <footer className="flex flex-col-reverse gap-2 border-t border-[var(--border-primary)] bg-[var(--bg-surface-secondary)] px-5 py-4 sm:flex-row sm:justify-end">
+                <button type="button" onClick={closeCreateModal} className="erp-button-secondary whitespace-nowrap">Отмена</button>
+                <button type="submit" disabled={createLoading} className="erp-button-primary whitespace-nowrap disabled:opacity-50">
+                  {createLoading ? 'Создание...' : 'Создать экипаж'}
+                </button>
+              </footer>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {activeAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] p-3 backdrop-blur-xs sm:p-6" role="presentation" onMouseDown={event => event.target === event.currentTarget && closeActionModal()}>
+          <section role="dialog" aria-modal="true" aria-labelledby="driver-action-title" className="w-full max-w-lg overflow-hidden rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)] shadow-xl">
+            <header className="flex items-start justify-between gap-4 border-b border-[var(--border-primary)] px-5 py-4">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${activeAction.type === 'delivered' ? 'bg-[var(--success-soft)] text-[var(--success)]' : 'bg-[var(--danger-soft)] text-[var(--danger)]'}`}>
+                  {activeAction.type === 'delivered' ? <CheckCircle2 className="h-[18px] w-[18px]" /> : <AlertTriangle className="h-[18px] w-[18px]" />}
+                </span>
+                <div className="min-w-0">
+                  <h2 id="driver-action-title" className="text-sm font-semibold text-[var(--text-primary)]">
+                    {activeAction.type === 'delivered' ? 'Подтвердить доставку' : 'Вернуть заказ на склад'}
+                  </h2>
+                  <p className="mt-1 text-[10px] text-[var(--text-tertiary)]">{orderLabel(activeAction.order)} · {activeAction.order.client.fullName}</p>
+                </div>
+              </div>
+              <button type="button" aria-label="Закрыть окно" onClick={closeActionModal} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-tertiary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]">
+                <X className="h-4 w-4" />
+              </button>
+            </header>
+
+            <form onSubmit={handleConfirmAction}>
+              <div className="space-y-4 p-5">
+                <div className="rounded-lg bg-[var(--bg-surface-secondary)] p-3 text-[11px] leading-5 text-[var(--text-secondary)]">
+                  {activeAction.type === 'delivered'
+                    ? 'Заказ будет отмечен как доставленный и перемещён в историю рейсов.'
+                    : 'Заказ будет снят с экипажа и возвращён на склад для повторной обработки.'}
+                </div>
+
+                {actionError && (
+                  <div className="flex items-start gap-2 rounded-lg border border-[var(--danger)]/25 bg-[var(--danger-soft)] px-3 py-2.5 text-[11px] text-[var(--danger)]" role="alert">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    {actionError}
+                  </div>
+                )}
+
+                <label className="space-y-1.5">
+                  <span className="text-[10px] font-medium text-[var(--text-secondary)]">
+                    {activeAction.type === 'warehouse' ? 'Причина возврата' : 'Комментарий'}
+                    {activeAction.type === 'warehouse' && <span className="text-[var(--danger)]"> *</span>}
+                  </span>
+                  <textarea
+                    required={activeAction.type === 'warehouse'}
+                    rows={4}
+                    placeholder={activeAction.type === 'warehouse' ? 'Опишите причину возврата' : 'Добавьте комментарий при необходимости'}
+                    value={actionComment}
+                    onChange={event => setActionComment(event.target.value)}
+                    className="erp-input min-h-24 w-full resize-y py-2.5 font-normal"
+                  />
+                </label>
+              </div>
+
+              <footer className="flex flex-col-reverse gap-2 border-t border-[var(--border-primary)] bg-[var(--bg-surface-secondary)] px-5 py-4 sm:flex-row sm:justify-end">
+                <button type="button" onClick={closeActionModal} className="erp-button-secondary whitespace-nowrap">Отмена</button>
+                <button type="submit" disabled={actionLoading} className={`whitespace-nowrap disabled:opacity-50 ${activeAction.type === 'delivered' ? 'erp-button-primary' : 'erp-button-secondary text-[var(--danger)] hover:bg-[var(--danger-soft)]'}`}>
+                  {actionLoading ? 'Сохранение...' : activeAction.type === 'delivered' ? 'Подтвердить доставку' : 'Вернуть на склад'}
+                </button>
+              </footer>
+            </form>
+          </section>
         </div>
       )}
     </div>

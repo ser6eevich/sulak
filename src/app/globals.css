@@ -7,37 +7,38 @@
    ═══════════════════════════════════════════════════════ */
 :root {
   /* ── Background ── */
-  --bg-app: #F8FAFC;
+  --bg-app: #F3F6FA;
   --bg-sidebar: #FFFFFF;
-  --bg-header: rgba(255, 255, 255, 0.85);
+  --bg-header: #F3F6FA;
   --bg-surface: #FFFFFF;
-  --bg-surface-secondary: #F1F5F9;
-  --bg-surface-hover: #F8FAFC;
-  --bg-surface-active: #E2E8F0;
+  --bg-surface-secondary: #F4F6F9;
+  --bg-surface-hover: #F6F8FB;
+  --bg-surface-active: #E9EDF3;
   --bg-overlay: rgba(15, 23, 42, 0.4);
-  --bg-input: #F8FAFC;
-  --bg-table-header: #F8FAFC;
-  --bg-table-row-hover: #F8FAFC;
+  --bg-input: #F7F9FC;
+  --bg-table-header: #FAFBFC;
+  --bg-table-row-hover: #F7F9FC;
 
   /* ── Text ── */
-  --text-primary: #0F172A;
-  --text-secondary: #475569;
-  --text-tertiary: #94A3B8;
+  --text-primary: #111827;
+  --text-secondary: #526074;
+  --text-tertiary: #8A94A6;
   --text-inverse: #FFFFFF;
   --text-disabled: #CBD5E1;
 
   /* ── Borders ── */
-  --border-primary: #E2E8F0;
-  --border-secondary: #F1F5F9;
-  --border-strong: #CBD5E1;
-  --divider: #E2E8F0;
+  --border-primary: #DFE5ED;
+  --border-secondary: #EDF0F4;
+  --border-strong: #C9D1DC;
+  --divider: #E5E9EF;
 
   /* ── Accent ── */
-  --accent-primary: #4B63FF;
-  --accent-primary-hover: #354DFF;
-  --accent-primary-active: #293ECC;
-  --accent-soft: rgba(75, 99, 255, 0.08);
-  --accent-text: #4B63FF;
+  --accent-primary: #2463EB;
+  --accent-primary-hover: #1D55CE;
+  --accent-primary-active: #1747AD;
+  --accent-soft: rgba(36, 99, 235, 0.09);
+  --accent-text: #2463EB;
+  --data-teal: #25B5A9;
 
   /* ── Status (General) ── */
   --success: #10B981;
@@ -83,14 +84,14 @@
   --status-cancelled-border: rgba(239, 68, 68, 0.2);
 
   /* ── Shadows & Focus ── */
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
-  --focus-ring: rgba(75, 99, 255, 0.25);
+  --shadow-sm: 0 1px 2px rgba(17, 24, 39, 0.025);
+  --shadow-md: 0 8px 24px rgba(17, 24, 39, 0.055);
+  --shadow-lg: 0 20px 50px rgba(17, 24, 39, 0.1);
+  --focus-ring: rgba(36, 99, 235, 0.2);
 
   /* ── Sidebar ── */
-  --sidebar-width: 208px;
-  --sidebar-collapsed-width: 52px;
+  --sidebar-width: 272px;
+  --sidebar-collapsed-width: 64px;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -98,47 +99,48 @@
    ═══════════════════════════════════════════════════════ */
 .dark, [data-theme="dark"] {
   /* ── Background ── */
-  --bg-app: #0B0E14;
-  --bg-sidebar: #12161F;
-  --bg-header: rgba(18, 22, 31, 0.85);
-  --bg-surface: #12161F;
-  --bg-surface-secondary: #1A202C;
-  --bg-surface-hover: #1E2638;
-  --bg-surface-active: #242D42;
-  --bg-overlay: rgba(0, 0, 0, 0.7);
-  --bg-input: #1A202C;
-  --bg-table-header: #151A24;
-  --bg-table-row-hover: #181F2E;
+  color-scheme: dark;
+  --bg-app: #10141B;
+  --bg-sidebar: #151A23;
+  --bg-header: #10141B;
+  --bg-surface: #171C25;
+  --bg-surface-secondary: #1C222D;
+  --bg-surface-hover: #222A36;
+  --bg-surface-active: #293342;
+  --bg-overlay: rgba(4, 7, 12, 0.76);
+  --bg-input: #1B212C;
+  --bg-table-header: #191F29;
+  --bg-table-row-hover: #1E2531;
 
   /* ── Text ── */
-  --text-primary: #F8FAFC;
-  --text-secondary: #94A3B8;
-  --text-tertiary: #64748B;
-  --text-inverse: #0F172A;
-  --text-disabled: #475569;
+  --text-primary: #F3F6FA;
+  --text-secondary: #A7B1C0;
+  --text-tertiary: #748094;
+  --text-inverse: #111722;
+  --text-disabled: #4F5B6E;
 
   /* ── Borders ── */
-  --border-primary: #1E2638;
-  --border-secondary: #161D2B;
-  --border-strong: #2D374D;
-  --divider: #1E2638;
+  --border-primary: #2A3342;
+  --border-secondary: #222A36;
+  --border-strong: #3A4658;
+  --divider: #2A3342;
 
   /* ── Accent ── */
-  --accent-primary: #4B63FF;
-  --accent-primary-hover: #5D73FF;
-  --accent-primary-active: #7083FF;
-  --accent-soft: rgba(75, 99, 255, 0.15);
-  --accent-text: #6C80FF;
+  --accent-primary: #5B7CFA;
+  --accent-primary-hover: #6C89FF;
+  --accent-primary-active: #4D6EE8;
+  --accent-soft: rgba(91, 124, 250, 0.14);
+  --accent-text: #86A0FF;
 
   /* ── Status (General) ── */
-  --success: #34D399;
-  --success-soft: rgba(52, 211, 153, 0.15);
-  --warning: #FBBF24;
-  --warning-soft: rgba(251, 191, 36, 0.15);
-  --danger: #F87171;
-  --danger-soft: rgba(248, 113, 113, 0.15);
-  --info: #60A5FA;
-  --info-soft: rgba(96, 165, 250, 0.15);
+  --success: #4FD1A5;
+  --success-soft: rgba(79, 209, 165, 0.12);
+  --warning: #F2BD5B;
+  --warning-soft: rgba(242, 189, 91, 0.12);
+  --danger: #F27D82;
+  --danger-soft: rgba(242, 125, 130, 0.12);
+  --info: #79A7FF;
+  --info-soft: rgba(121, 167, 255, 0.12);
 
   /* ── Order Status Tokens — Dark ── */
   --status-pending-bg: rgba(251, 191, 36, 0.12);
@@ -174,10 +176,10 @@
   --status-cancelled-border: rgba(248, 113, 113, 0.2);
 
   /* ── Shadows & Focus ── */
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.3);
-  --focus-ring: rgba(75, 99, 255, 0.35);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.22);
+  --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.24);
+  --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.38);
+  --focus-ring: rgba(91, 124, 250, 0.36);
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -241,9 +243,22 @@ p, span, div {
   background: var(--text-tertiary);
 }
 
+.erp-scrollbar-hidden {
+  scrollbar-width: none;
+}
+
+.erp-scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
 /* Микро-транзишены */
 a, button, select, input, textarea {
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  transition: background-color 0.16s cubic-bezier(0.23, 1, 0.32, 1), border-color 0.16s cubic-bezier(0.23, 1, 0.32, 1), color 0.16s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 0.16s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.16s cubic-bezier(0.23, 1, 0.32, 1), transform 0.16s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+button:active:not(:disabled),
+a:active {
+  transform: scale(0.98);
 }
 
 /* Фокус на полях ввода */
@@ -261,7 +276,7 @@ input:focus, select:focus, textarea:focus {
 .erp-card {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-primary);
-  border-radius: 8px;
+  border-radius: 18px;
   box-shadow: var(--shadow-sm);
 }
 
@@ -270,7 +285,7 @@ input:focus, select:focus, textarea:focus {
   background-color: var(--bg-input);
   border: 1px solid var(--border-primary);
   color: var(--text-primary);
-  border-radius: 6px;
+  border-radius: 10px;
   padding: 0.5rem 0.75rem;
   font-size: 0.8125rem;
 }
@@ -281,6 +296,7 @@ input:focus, select:focus, textarea:focus {
 
 /* ── Кнопки ── */
 .erp-button-primary {
+  white-space: nowrap;
   background-color: var(--accent-primary);
   color: #FFFFFF;
   font-weight: 500;
@@ -298,6 +314,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 .erp-button-secondary {
+  white-space: nowrap;
   background-color: var(--bg-surface-secondary);
   color: var(--text-primary);
   border: 1px solid var(--border-primary);

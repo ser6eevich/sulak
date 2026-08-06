@@ -1,10 +1,10 @@
 import prisma from '@/lib/prisma'
-import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import SettingsClient from './SettingsClient'
 import { Settings } from 'lucide-react'
 import { getTelegramSettings } from '@/utils/telegram'
 import { getAmoCrmSettingsAction } from '@/app/(dashboard)/analytics/daily-report/actions'
+import { getCurrentProfile } from '@/lib/auth/dal'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,7 +28,7 @@ async function getAvitoFormAccounts() {
       if (idx >= 0 && idx < 7) {
         if (field === 'name') accounts[idx].name = r.value
         if (field === 'client_id') accounts[idx].clientId = r.value
-        if (field === 'client_secret') accounts[idx].clientSecret = r.value
+        if (field === 'client_secret') accounts[idx].clientSecret = ''
       }
     }
   } catch (err) {
@@ -39,20 +39,14 @@ async function getAvitoFormAccounts() {
 }
 
 export default async function SettingsPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const profile = await prisma.profile.findUnique({
-    where: { id: user.id },
-  })
+  const profile = await getCurrentProfile()
 
   if (!profile || !profile.isActive || !['admin', 'owner'].includes(profile.role)) {
     redirect('/unauthorized')
   }
 
   const [
-    { chatId, token, ownerTag, warehouseTag, siteUrl, thresholds, topics, notifyFlags },
+    { chatId, ownerTag, warehouseTag, siteUrl, thresholds, topics, notifyFlags },
     amoSettings,
     avitoAccounts,
   ] = await Promise.all([
@@ -61,69 +55,53 @@ export default async function SettingsPage() {
     getAvitoFormAccounts(),
   ])
 
-  const managers = await prisma.profile.findMany({
-    where: {
-      role: 'manager',
+  const allUserRecords = await prisma.profile.findMany({
+    select: {
+      id: true,
+      email: true,
+      fullName: true,
+      role: true,
+      isActive: true,
+      permissions: true,
+      telegramUsername: true,
     },
-    include: {
-      sellerOrders: {
-        include: {
-          client: {
-            select: {
-              fullName: true,
-              primaryPhone: true,
-            },
-          },
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-      },
-    },
-    orderBy: {
-      fullName: 'asc',
-    },
-  })
-
-  const tgRows = await prisma.$queryRawUnsafe<{ id: string; telegram_username: string | null }[]>(
-    `SELECT id, telegram_username FROM public.profiles WHERE role = 'manager'`
-  )
-  const tgMap = new Map(tgRows.map(r => [r.id, r.telegram_username]))
-
-  const initialManagers = managers.map(m => ({
-    ...m,
-    telegramUsername: (m as any).telegramUsername || tgMap.get(m.id) || null,
-  }))
-
-  const allUsers = await prisma.profile.findMany({
     orderBy: { fullName: 'asc' },
   })
+  const allUsers = allUserRecords.map((record) => ({
+    ...record,
+    permissions:
+      record.permissions && typeof record.permissions === 'object' && !Array.isArray(record.permissions)
+        ? (record.permissions as Record<string, boolean>)
+        : {},
+  }))
 
   const yandexSettingsRows = await prisma.systemSetting.findMany({
     where: { key: { in: ['yandex_disk_public_url', 'yandex_disk_token'] } }
   })
   let yandexPublicUrl = process.env.YANDEX_DISK_PUBLIC_URL || ''
-  let yandexToken = process.env.YANDEX_DISK_TOKEN || ''
   for (const r of yandexSettingsRows) {
     if (r.key === 'yandex_disk_public_url' && r.value) yandexPublicUrl = r.value
-    if (r.key === 'yandex_disk_token' && r.value) yandexToken = r.value
   }
 
   return (
-    <div className="w-full max-w-7xl mx-auto space-y-6 select-none">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight text-[var(--text-primary)] flex items-center gap-2">
-          <Settings className="h-5 w-5 text-[var(--accent-primary)]" />
-          Настройки системы и команды
-        </h1>
-        <p className="text-xs font-normal text-[var(--text-secondary)] mt-1">
-          Управление интеграциями Telegram, Яндекс.Диском, Авито, amoCRM и командой сотрудников
-        </p>
+    <div className="mx-auto w-full max-w-[1440px] space-y-4 select-none">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+          <Settings className="h-[18px] w-[18px]" strokeWidth={1.8} />
+        </span>
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+            Настройки системы
+          </h1>
+          <p className="mt-1 text-xs text-[var(--text-secondary)]">
+            Интеграции, уведомления, доступы и команда в одном месте
+          </p>
+        </div>
       </div>
 
       <SettingsClient 
         initialChatId={chatId} 
-        initialBotToken={token}
+        initialBotToken=""
         initialOwnerTag={ownerTag}
         initialWarehouseTag={warehouseTag}
         initialThresholds={thresholds}
@@ -133,11 +111,9 @@ export default async function SettingsPage() {
         initialAmoSettings={amoSettings}
         initialAvitoAccounts={avitoAccounts}
         initialYandexDiskPublicUrl={yandexPublicUrl}
-        initialYandexDiskToken={yandexToken}
-        initialManagers={initialManagers}
+        initialYandexDiskToken=""
         initialUsers={allUsers}
-        currentUserId={user.id}
-        userRole={profile.role}
+        currentUserId={profile.id}
       />
     </div>
   )

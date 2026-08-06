@@ -8,6 +8,8 @@ import { normalizeAddress } from '@/utils/address'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { sendOrderTelegramNotification, getTelegramSettings } from '@/utils/telegram'
+import fs from 'node:fs'
+import path from 'node:path'
 
 // Схемы валидации
 const orderItemSchema = z.object({
@@ -638,24 +640,36 @@ export async function updateOrderImageAction(
     let newImageUrlValue: string | null
 
     if (subOrderIndex !== null && subOrderIndex !== undefined) {
-      let imagesMap: Record<string, string> = {}
+      let imagesMap: Record<string, string[]> = {}
 
       if (order.imageUrl) {
         try {
           const parsed = JSON.parse(order.imageUrl)
-          if (typeof parsed === 'object' && !Array.isArray(parsed)) {
-            imagesMap = parsed
+          if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+            imagesMap = Object.fromEntries(
+              Object.entries(parsed as Record<string, unknown>).map(([mapKey, value]) => [
+                mapKey,
+                Array.isArray(value)
+                  ? value.filter((item): item is string => typeof item === 'string')
+                  : typeof value === 'string' ? [value] : [],
+              ])
+            )
           }
         } catch {
-          imagesMap = { '0': order.imageUrl }
+          imagesMap = { '0': [order.imageUrl] }
         }
       }
 
       const key = String(subOrderIndex)
       if (imageUrl === null) {
-        delete imagesMap[key]
+        if (deleteImageIndex !== null && deleteImageIndex !== undefined) {
+          imagesMap[key] = (imagesMap[key] || []).filter((_, index) => index !== deleteImageIndex)
+          if (imagesMap[key].length === 0) delete imagesMap[key]
+        } else {
+          delete imagesMap[key]
+        }
       } else {
-        imagesMap[key] = imageUrl
+        imagesMap[key] = [...(imagesMap[key] || []), imageUrl]
       }
 
       newImageUrlValue = Object.keys(imagesMap).length > 0 ? JSON.stringify(imagesMap) : null
@@ -746,7 +760,6 @@ export async function sendTelegramNotification(orderId: string) {
       itemsPricesParts.push(subTotal.toLocaleString('ru-RU'))
     }
 
-    const itemsPrices = itemsPricesParts.join(' + ')
     const phones = [order.client.primaryPhone, order.client.additionalPhone].filter(Boolean).join(', ')
 
     const grandTotalCents = order.totalPrice - order.discount + order.deliveryPrice + order.assemblyPrice
@@ -873,8 +886,6 @@ ${priceBlock}${commentLine}`
 
     const readLocalFile = (url: string): Buffer | null => {
       try {
-        const fs = require('fs')
-        const path = require('path')
         const cleanPath = url.startsWith('/uploads/')
           ? `uploads/${url.slice('/uploads/'.length)}`
           : url.startsWith('/public/')
@@ -928,7 +939,7 @@ ${priceBlock}${commentLine}`
         form.append('chat_id', chatId)
         if (messageThreadId) form.append('message_thread_id', String(messageThreadId))
 
-        const media = localBuffers.map(({ ext, fieldName }, idx) => ({
+        const media = localBuffers.map(({ fieldName }, idx) => ({
           type: 'photo',
           media: `attach://${fieldName}`,
           ...(idx === 0 ? { caption: textMessage, parse_mode: 'HTML' } : {}),
@@ -957,7 +968,7 @@ ${priceBlock}${commentLine}`
         media: photoUrl,
         ...(idx === 0 ? { caption: textMessage, parse_mode: 'HTML' } : {})
       }))
-      const payload: any = { chat_id: chatId, media }
+      const payload: { chat_id: string; media: typeof media; message_thread_id?: number } = { chat_id: chatId, media }
       if (messageThreadId) payload.message_thread_id = messageThreadId
       const res = await fetch(url, {
         method: 'POST',
@@ -971,7 +982,14 @@ ${priceBlock}${commentLine}`
     } else if (allRemote.length === 1) {
       // ── Одно удалённое фото → sendPhoto по URL ──
       const url = `https://api.telegram.org/bot${token}/sendPhoto`
-      const payload: any = {
+      const payload: {
+        chat_id: string
+        photo: string
+        caption: string
+        parse_mode: string
+        reply_markup: typeof replyMarkup
+        message_thread_id?: number
+      } = {
         chat_id: chatId,
         photo: allRemote[0],
         caption: textMessage,
@@ -991,7 +1009,13 @@ ${priceBlock}${commentLine}`
     } else {
       // ── Нет фото → отправляем только текст ──
       const url = `https://api.telegram.org/bot${token}/sendMessage`
-      const payload: any = {
+      const payload: {
+        chat_id: string
+        text: string
+        parse_mode: string
+        reply_markup: typeof replyMarkup
+        message_thread_id?: number
+      } = {
         chat_id: chatId,
         text: textMessage,
         parse_mode: 'HTML',
@@ -1080,4 +1104,3 @@ export async function batchUpdateOrdersDeliveredAction(orderIds: string[], custo
     return { error: error instanceof Error ? error.message : 'Ошибка при пакетном обновлении заказов' }
   }
 }
-

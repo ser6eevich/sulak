@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { logoutAction } from '@/app/login/actions'
 import { 
@@ -16,7 +17,6 @@ import {
   DollarSign,
   TrendingUp,
   Settings,
-  ChevronRight,
   PanelLeftClose,
   PanelLeft,
   FileText
@@ -27,7 +27,7 @@ interface SidebarProps {
     email: string
     full_name: string
     role: string
-    permissions?: any
+    permissions?: Record<string, boolean> | null
   }
 }
 
@@ -139,7 +139,8 @@ export default function Sidebar({ profile }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
   useEffect(() => {
     const saved = localStorage.getItem('sulak-sidebar-collapsed')
-    if (saved === 'true') setCollapsed(true)
+    const timeoutId = window.setTimeout(() => setCollapsed(saved === 'true'), 0)
+    return () => window.clearTimeout(timeoutId)
   }, [])
 
   const toggleCollapsed = () => {
@@ -174,72 +175,69 @@ export default function Sidebar({ profile }: SidebarProps) {
 
   return (
     <aside
-      className="hidden md:flex flex-col border-r border-[var(--border-primary)] bg-[var(--bg-sidebar)] select-none shrink-0 transition-[width] duration-200 ease-out overflow-x-hidden overflow-y-hidden"
+      data-collapsed={collapsed}
+      className={`hidden md:flex h-full shrink-0 select-none flex-col overflow-hidden border-r transition-[width,background-color,border-color] duration-200 [transition-timing-function:cubic-bezier(0.23,1,0.32,1)] ${
+        collapsed
+          ? 'border-[#11151c] bg-[#11151c] text-white'
+          : 'border-[var(--border-primary)] bg-[var(--bg-sidebar)] text-[var(--text-primary)]'
+      }`}
       style={{ width: collapsed ? 'var(--sidebar-collapsed-width)' : 'var(--sidebar-width)' }}
     >
-      {/* Логотип + кнопка свернуть/развернуть */}
-      <div className={`flex h-13 items-center border-b border-[var(--border-primary)] ${collapsed ? 'justify-center px-1.5' : 'justify-between px-3 gap-2'}`}>
-        {!collapsed ? (
+      <div className={`flex h-20 shrink-0 items-center ${collapsed ? 'justify-center px-3' : 'justify-between px-5'}`}>
+        {collapsed ? (
+          <button
+            onClick={toggleCollapsed}
+            className="group relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-white text-[#11151c] transition-[transform,background-color] duration-150 active:scale-[0.96]"
+            title="Развернуть меню"
+            aria-label="Развернуть меню"
+          >
+            <Image
+              src="/logo.png"
+              alt="Сулак CRM"
+              width={40}
+              height={40}
+              className="h-full w-full object-cover transition-opacity duration-150 group-hover:opacity-15"
+              onError={(event) => { event.currentTarget.style.display = 'none' }}
+            />
+            <PanelLeft className="absolute h-4.5 w-4.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
+          </button>
+        ) : (
           <>
-            <Link 
-              href="/" 
-              className="flex items-center gap-2.5 font-medium text-[var(--text-primary)] tracking-tight min-w-0"
-            >
-              <div className="relative flex h-7 w-7 items-center justify-center rounded-md bg-[var(--accent-primary)] text-white text-[11px] font-bold shrink-0 overflow-hidden shadow-xs">
-                <img 
-                  src="/logo.png" 
-                  alt="Сулак CRM" 
-                  className="h-full w-full object-cover relative z-10"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none'
-                  }}
+            <Link href="/dashboard" className="flex min-w-0 items-center gap-3">
+              <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#11151c] text-xs font-bold text-white">
+                <Image
+                  src="/logo.png"
+                  alt="Сулак CRM"
+                  width={40}
+                  height={40}
+                  className="h-full w-full object-cover"
+                  onError={(event) => { event.currentTarget.style.display = 'none' }}
                 />
-                <span className="absolute z-0">S</span>
+                <span className="absolute -z-10">S</span>
               </div>
-              <span className="text-xs font-bold tracking-wide text-[var(--text-primary)] truncate">
-                СУЛАК CRM
-              </span>
+              <span className="truncate text-[15px] font-semibold tracking-[-0.02em]">СУЛАК CRM</span>
             </Link>
             <button
               onClick={toggleCollapsed}
-              className="p-1.5 rounded-md text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)] transition-colors cursor-pointer shrink-0"
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-[var(--text-tertiary)] transition-[transform,background-color,color] duration-150 hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)] active:scale-[0.96]"
               title="Свернуть панель"
+              aria-label="Свернуть панель"
             >
-              <PanelLeftClose className="h-4 w-4" />
+              <PanelLeftClose className="h-4.5 w-4.5" />
             </button>
           </>
-        ) : (
-          <button
-            onClick={toggleCollapsed}
-            className="group relative flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--accent-primary)] text-white text-[11px] font-bold shrink-0 overflow-hidden hover:opacity-90 transition-all cursor-pointer shadow-xs"
-            title="Развернуть меню"
-          >
-            <img 
-              src="/logo.png" 
-              alt="Сулак CRM" 
-              className="h-full w-full object-cover relative z-10 group-hover:opacity-20 transition-opacity"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none'
-              }}
-            />
-            <span className="absolute z-0 group-hover:opacity-0 transition-opacity">S</span>
-            <PanelLeft className="absolute z-20 h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-          </button>
         )}
       </div>
 
-      {/* Навигация */}
-      <nav className="flex-1 space-y-3 px-2 py-3 overflow-x-hidden overflow-y-auto">
-        {groups.map(group => (
-          <div key={group.key} className="space-y-0.5">
+      <nav className={`min-h-0 flex-1 overflow-y-auto overflow-x-hidden ${collapsed ? 'space-y-3 px-2.5 pb-4' : 'space-y-5 px-3 pb-5'}`}>
+        {groups.map((group, groupIndex) => (
+          <div key={group.key} className="space-y-1">
             {!collapsed && (
-              <div className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">
+              <div className="px-3 pb-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--text-tertiary)]">
                 {group.label}
               </div>
             )}
-            {collapsed && (
-              <div className="h-px bg-[var(--border-primary)] mx-1 my-1" />
-            )}
+            {collapsed && groupIndex > 0 && <div className="mx-2 mb-3 h-px bg-white/10" />}
             {group.items.map(item => {
               const Icon = item.icon
               const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
@@ -249,25 +247,15 @@ export default function Sidebar({ profile }: SidebarProps) {
                   key={item.href}
                   href={item.href}
                   title={collapsed ? item.title : undefined}
-                  className={`flex items-center gap-2 rounded-md transition-colors relative group ${
-                    collapsed ? 'justify-center px-0 py-2' : 'px-2.5 py-1.5'
-                  } ${
-                    isActive
-                      ? 'bg-[var(--accent-soft)] text-[var(--accent-text)] font-medium'
-                      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`group flex items-center transition-[transform,background-color,color] duration-150 active:scale-[0.98] ${
+                    collapsed
+                      ? `mx-auto h-10 w-10 justify-center rounded-xl ${isActive ? 'bg-[var(--accent-primary)] text-white' : 'text-white/55 hover:bg-white/8 hover:text-white'}`
+                      : `gap-3 rounded-xl px-3 py-2.5 text-[13px] ${isActive ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'}`
                   }`}
                 >
-                  {/* Вертикальная полоска для активного пункта */}
-                  {isActive && (
-                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r bg-[var(--accent-primary)]" />
-                  )}
-                  <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-[var(--accent-primary)]' : 'text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)]'}`} />
-                  {!collapsed && (
-                    <>
-                      <span className="truncate text-xs">{item.title}</span>
-                      {isActive && <ChevronRight className="h-3 w-3 text-[var(--accent-primary)] shrink-0 opacity-60 ml-auto" />}
-                    </>
-                  )}
+                  <Icon className={`h-[17px] w-[17px] shrink-0 ${!collapsed && !isActive ? 'text-[var(--text-tertiary)] group-hover:text-[var(--text-primary)]' : ''}`} />
+                  {!collapsed && <span className="truncate">{item.title}</span>}
                 </Link>
               )
             })}
@@ -275,42 +263,30 @@ export default function Sidebar({ profile }: SidebarProps) {
         ))}
       </nav>
 
-      {/* Профиль внизу */}
-      <div className="p-2 border-t border-[var(--border-primary)]">
+      <div className={`shrink-0 ${collapsed ? 'border-t border-white/10 px-2.5 py-4' : 'border-t border-[var(--border-primary)] p-3'}`}>
         {collapsed ? (
-          /* Свёрнутое состояние: только аватар + логаут */
-          <div className="flex flex-col items-center gap-1.5">
-            <div className="h-7 w-7 rounded-full bg-[var(--accent-soft)] text-[var(--accent-text)] font-semibold text-[11px] flex items-center justify-center border border-[var(--accent-primary)]/20">
+          <div className="flex flex-col items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/8 text-xs font-semibold text-white">
               {profile.full_name.slice(0, 1).toUpperCase()}
             </div>
             <form action={logoutAction}>
-              <button
-                type="submit"
-                className="p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--danger)] hover:bg-[var(--danger-soft)] transition-colors cursor-pointer"
-                title="Выйти из аккаунта"
-              >
-                <LogOut className="h-3.5 w-3.5" />
+              <button type="submit" className="flex h-8 w-8 items-center justify-center rounded-lg text-white/45 transition-[transform,background-color,color] duration-150 hover:bg-white/8 hover:text-white active:scale-[0.96]" title="Выйти из аккаунта">
+                <LogOut className="h-4 w-4" />
               </button>
             </form>
           </div>
         ) : (
-          /* Развёрнутое состояние: имя + email + логаут */
-          <div className="flex items-center justify-between gap-2 p-2 rounded-md bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)]">
-            <div className="flex flex-col min-w-0">
-              <span className="text-xs font-medium text-[var(--text-primary)] truncate leading-tight">
-                {profile.full_name}
-              </span>
-              <span className="text-[10px] text-[var(--text-tertiary)] truncate font-mono mt-0.5">
-                {profile.email}
-              </span>
+          <div className="flex items-center gap-3 rounded-2xl px-2 py-2">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent-primary)] text-xs font-semibold text-white">
+              {profile.full_name.slice(0, 1).toUpperCase()}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium text-[var(--text-primary)]">{profile.full_name}</p>
+              <p className="mt-0.5 truncate text-[10px] text-[var(--text-tertiary)]">{profile.email}</p>
             </div>
             <form action={logoutAction}>
-              <button
-                type="submit"
-                className="p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--danger)] hover:bg-[var(--danger-soft)] transition-colors cursor-pointer"
-                title="Выйти из аккаунта"
-              >
-                <LogOut className="h-3.5 w-3.5" />
+              <button type="submit" className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-tertiary)] transition-[transform,background-color,color] duration-150 hover:bg-[var(--danger-soft)] hover:text-[var(--danger)] active:scale-[0.96]" title="Выйти из аккаунта">
+                <LogOut className="h-4 w-4" />
               </button>
             </form>
           </div>

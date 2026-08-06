@@ -1,23 +1,25 @@
 import { NextResponse } from 'next/server'
-import prisma from '@/lib/prisma'
+import { requireAccess } from '@/lib/auth/dal'
+import { getYandexDiskSettings } from '@/lib/yandex-disk/settings'
+
+interface YandexResourceItem {
+  name: string
+  type: 'dir' | 'file'
+  path: string
+  size?: number
+  mime_type?: string
+}
 
 export async function GET(request: Request) {
   try {
+    await requireAccess('orders', ['admin', 'owner', 'manager', 'production', 'warehouse', 'logistician', 'driver'])
     const { searchParams } = new URL(request.url)
     const reqPath = searchParams.get('path') || '/'
-
-    // Загружаем настройки Яндекс.Диска из базы
-    const settings = await prisma.$queryRawUnsafe<{ key: string; value: string }[]>(
-      `SELECT key, value FROM public.system_settings WHERE key IN ('yandex_disk_public_url', 'yandex_disk_token')`
-    )
-
-    let publicUrl = process.env.YANDEX_DISK_PUBLIC_URL || ''
-    let oauthToken = process.env.YANDEX_DISK_TOKEN || ''
-
-    for (const s of settings) {
-      if (s.key === 'yandex_disk_public_url' && s.value) publicUrl = s.value.trim()
-      if (s.key === 'yandex_disk_token' && s.value) oauthToken = s.value.trim()
+    if (reqPath.length > 1024) {
+      return NextResponse.json({ error: 'Некорректный путь' }, { status: 400 })
     }
+
+    const { publicUrl, oauthToken } = await getYandexDiskSettings()
 
     if (!publicUrl && !oauthToken) {
       return NextResponse.json({
@@ -39,7 +41,11 @@ export async function GET(request: Request) {
       headers['Authorization'] = `OAuth ${oauthToken}`
     }
 
-    const res = await fetch(yandexApiUrl, { headers, cache: 'no-store' })
+    const res = await fetch(yandexApiUrl, {
+      headers,
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10_000),
+    })
 
     if (!res.ok) {
       const errText = await res.text()
@@ -47,19 +53,21 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Не удалось загрузить папки с Яндекс.Диска. Проверьте ссылку в настройках.' }, { status: res.status })
     }
 
-    const data = await res.json()
+    const data = (await res.json()) as {
+      name?: string
+      _embedded?: { items?: YandexResourceItem[] }
+    }
     const rawItems = data._embedded?.items || []
 
     const items = rawItems
-      .filter((i: any) => i.type === 'dir' || (i.type === 'file' && i.mime_type?.startsWith('image/')))
-      .map((i: any) => ({
-        name: i.name,
-        type: i.type, // 'dir' | 'file'
-        path: i.path,
-        preview: i.type === 'file' ? `/api/yandex-disk/preview-proxy?path=${encodeURIComponent(i.path)}` : null,
-        file: i.file || null, // URL прямого скачивания для публичных файлов
-        size: i.size || 0,
-        mimeType: i.mime_type || null,
+      .filter((item) => item.type === 'dir' || (item.type === 'file' && item.mime_type?.startsWith('image/')))
+      .map((item) => ({
+        name: item.name,
+        type: item.type,
+        path: item.path,
+        preview: item.type === 'file' ? `/api/yandex-disk/preview-proxy?path=${encodeURIComponent(item.path)}` : null,
+        size: item.size || 0,
+        mimeType: item.mime_type || null,
       }))
 
     return NextResponse.json({
@@ -68,8 +76,10 @@ export async function GET(request: Request) {
       folderName: data.name || 'Корень',
       items,
     })
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Ошибка роута yandex-disk/resources:', err)
-    return NextResponse.json({ error: err.message || 'Ошибка сервера' }, { status: 500 })
+    const message = err instanceof Error ? err.message : 'Ошибка сервера'
+    const status = message === 'Не авторизован' ? 401 : message === 'Недостаточно прав' ? 403 : 500
+    return NextResponse.json({ error: message }, { status })
   }
 }

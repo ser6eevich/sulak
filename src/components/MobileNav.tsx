@@ -29,7 +29,7 @@ interface MobileNavProps {
     email: string
     full_name: string
     role: string
-    permissions?: any
+    permissions?: Record<string, boolean> | null
   }
 }
 

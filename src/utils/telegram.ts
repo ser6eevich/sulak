@@ -1,5 +1,6 @@
 import prisma from '@/lib/prisma'
 import { normalizeAddress } from './address'
+import { decryptSecret } from '@/lib/settings/secret-crypto'
 
 export async function getTelegramSettings() {
   let chatId = process.env.TELEGRAM_CHAT_ID || ''
@@ -23,7 +24,7 @@ export async function getTelegramSettings() {
     )
     for (const r of rows) {
       if (r.key === 'telegram_chat_id' && r.value) chatId = r.value.trim()
-      if (r.key === 'telegram_bot_token' && r.value) token = r.value.trim()
+      if (r.key === 'telegram_bot_token' && r.value) token = decryptSecret(r.value).trim()
       if (r.key === 'telegram_owner_tag' && r.value) ownerTag = r.value.trim()
       if (r.key === 'telegram_warehouse_tag' && r.value) warehouseTag = r.value.trim()
       if (r.key === 'telegram_site_url' && r.value) siteUrl = r.value.trim()
@@ -110,17 +111,7 @@ export async function sendOrderTelegramNotification(
 
     const manager = order.seller || order.creator
     const managerName = manager?.fullName || 'Не указан'
-    let managerTag = (manager as any)?.telegramUsername?.trim() || ''
-
-    if (!managerTag && manager?.id) {
-      const rawRes = await prisma.$queryRawUnsafe<{ telegram_username: string | null }[]>(
-        `SELECT telegram_username FROM public.profiles WHERE id = $1::uuid`,
-        manager.id
-      )
-      if (rawRes && rawRes.length > 0 && rawRes[0].telegram_username) {
-        managerTag = rawRes[0].telegram_username.trim()
-      }
-    }
+    let managerTag = manager?.telegramUsername?.trim() || ''
 
     if (managerTag && !managerTag.startsWith('@')) {
       managerTag = `@${managerTag}`
@@ -160,7 +151,7 @@ export async function sendOrderTelegramNotification(
 
     if (order.items && order.items.length > 0) {
       for (const item of order.items) {
-        let rawName = item.variant?.product?.name || ''
+        const rawName = item.variant?.product?.name || ''
         const customSize = item.customTableSize || item.variant?.size
         const customChairs = item.customChairsCount
         const color = item.variant?.color

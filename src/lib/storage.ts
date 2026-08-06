@@ -43,10 +43,11 @@ export async function uploadFileToStorage(
         ...(disableAcl ? {} : { ACL: 'public-read' }),
       })
       await s3Client.send(command)
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const storageError = err as { name?: string; message?: string }
       // Если бакет не поддерживает Object ACL (например, Yandex Cloud с Bucket Owner Enforced),
       // пробуем повторить загрузку без параметра ACL
-      if (err?.name === 'AccessControlListNotSupported' || err?.message?.includes('ACL')) {
+      if (storageError.name === 'AccessControlListNotSupported' || storageError.message?.includes('ACL')) {
         const commandWithoutAcl = new PutObjectCommand({
           Bucket: bucketName,
           Key: fileName,

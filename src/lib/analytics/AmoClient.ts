@@ -1,5 +1,25 @@
 import prisma from '@/lib/prisma'
 import { cacheService } from './CacheService'
+import { decryptSecret, encryptSecret } from '@/lib/settings/secret-crypto'
+
+export interface AmoFieldValue {
+  custom_field_value?: AmoFieldValue
+  custom_field?: { name?: string }
+  field_id?: number
+  text?: string
+  enum_id?: number
+  name?: string
+}
+
+export interface AmoCall {
+  id?: number
+  direction?: string | number
+  type?: string | number
+  call_direction?: string | number
+  call_result?: string
+  duration?: number
+  call_status?: number
+}
 
 export interface AmoEvent {
   id: string
@@ -8,8 +28,8 @@ export interface AmoEvent {
   entity_type: string
   created_at: number
   created_by: number
-  value_after?: any
-  value_before?: any
+  value_after?: AmoFieldValue | AmoFieldValue[]
+  value_before?: AmoFieldValue | AmoFieldValue[]
 }
 
 export interface AmoTalk {
@@ -66,9 +86,9 @@ export class AmoClient {
       .trim()
 
     this.clientId = map['amocrm_client_id'] || ''
-    this.clientSecret = map['amocrm_client_secret'] || ''
-    this.accessToken = (map['amocrm_access_token'] || '').trim()
-    this.refreshToken = (map['amocrm_refresh_token'] || '').trim()
+    this.clientSecret = decryptSecret(map['amocrm_client_secret'] || '')
+    this.accessToken = decryptSecret(map['amocrm_access_token'] || '').trim()
+    this.refreshToken = decryptSecret(map['amocrm_refresh_token'] || '').trim()
     this.expiresAt = parseInt(map['amocrm_expires_at'] || '0', 10)
 
     if (!this.subdomain || !this.accessToken) {
@@ -117,13 +137,13 @@ export class AmoClient {
       await prisma.$transaction([
         prisma.systemSetting.upsert({
           where: { key: 'amocrm_access_token' },
-          update: { value: this.accessToken },
-          create: { key: 'amocrm_access_token', value: this.accessToken },
+          update: { value: encryptSecret(this.accessToken) },
+          create: { key: 'amocrm_access_token', value: encryptSecret(this.accessToken) },
         }),
         prisma.systemSetting.upsert({
           where: { key: 'amocrm_refresh_token' },
-          update: { value: this.refreshToken },
-          create: { key: 'amocrm_refresh_token', value: this.refreshToken },
+          update: { value: encryptSecret(this.refreshToken) },
+          create: { key: 'amocrm_refresh_token', value: encryptSecret(this.refreshToken) },
         }),
         prisma.systemSetting.upsert({
           where: { key: 'amocrm_expires_at' },
@@ -351,13 +371,13 @@ export class AmoClient {
   /**
    * 6. Звонки по created_at (GET /api/v4/calls)
    */
-  async getCalls(fromTimestamp: number, toTimestamp: number): Promise<any[]> {
+  async getCalls(fromTimestamp: number, toTimestamp: number): Promise<AmoCall[]> {
     const cacheKey = `calls_${fromTimestamp}_${toTimestamp}`
-    const cached = cacheService.get<any[]>(cacheKey)
+    const cached = cacheService.get<AmoCall[]>(cacheKey)
     if (cached) return cached
 
     const endpoint = `/api/v4/calls?filter[created_at][from]=${fromTimestamp}&filter[created_at][to]=${toTimestamp}&limit=250`
-    const data = await this.request<{ _embedded?: { calls?: any[] } }>(endpoint)
+    const data = await this.request<{ _embedded?: { calls?: AmoCall[] } }>(endpoint)
     const calls = data?._embedded?.calls || []
 
     cacheService.set(cacheKey, calls, 300000)
@@ -367,13 +387,13 @@ export class AmoClient {
   /**
    * 7. Звонки по updated_at (GET /api/v4/calls)
    */
-  async getCallsByUpdatedAt(fromTimestamp: number, toTimestamp: number): Promise<any[]> {
+  async getCallsByUpdatedAt(fromTimestamp: number, toTimestamp: number): Promise<AmoCall[]> {
     const cacheKey = `calls_upd_${fromTimestamp}_${toTimestamp}`
-    const cached = cacheService.get<any[]>(cacheKey)
+    const cached = cacheService.get<AmoCall[]>(cacheKey)
     if (cached) return cached
 
     const endpoint = `/api/v4/calls?filter[updated_at][from]=${fromTimestamp}&filter[updated_at][to]=${toTimestamp}&limit=250`
-    const data = await this.request<{ _embedded?: { calls?: any[] } }>(endpoint)
+    const data = await this.request<{ _embedded?: { calls?: AmoCall[] } }>(endpoint)
     const calls = data?._embedded?.calls || []
 
     cacheService.set(cacheKey, calls, 300000)

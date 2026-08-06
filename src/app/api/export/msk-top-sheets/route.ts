@@ -158,8 +158,9 @@ async function upsertSpreadsheet(
       })
       spreadsheetId = created.data.spreadsheetId!
       spreadsheetUrl = created.data.spreadsheetUrl!
-    } catch (err: any) {
-      if (err?.message?.includes('permission') || err?.status === 403) {
+    } catch (err: unknown) {
+      const apiError = err as { message?: string; status?: number }
+      if (apiError.message?.includes('permission') || apiError.status === 403) {
         throw new Error(
           'У Service Account квота своего диска = 0 байт. Пожалуйста, создайте Google Таблицу на своём диске, нажмите «Поделиться», выдать доступ Редактора почте sulak-msk@supple-outlet-464708-f7.iam.gserviceaccount.com и укажите ID таблицы в GOOGLE_SHEETS_ID в .env.local'
         )

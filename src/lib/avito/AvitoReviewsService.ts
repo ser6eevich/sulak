@@ -12,6 +12,7 @@ import {
   reviewTypeLabel,
   type AvitoReview,
 } from './AvitoReviewsClient'
+import { decryptSecret } from '@/lib/settings/secret-crypto'
 
 export {
   fetchAvitoReviews,
@@ -44,7 +45,7 @@ export async function loadAvitoAccounts(): Promise<AvitoAccount[]> {
       if (!accounts[idx]) accounts[idx] = {}
       if (field === 'name') accounts[idx].name = row.value
       if (field === 'client_id') accounts[idx].clientId = row.value
-      if (field === 'client_secret') accounts[idx].clientSecret = row.value
+      if (field === 'client_secret') accounts[idx].clientSecret = decryptSecret(row.value)
     }
 
     return Object.values(accounts).filter(
@@ -127,7 +128,12 @@ async function sendReviewNotification(
     `──────────────\n` +
     `#отзыв_авито`
 
-  const body: any = {
+  const body: {
+    chat_id: string
+    text: string
+    parse_mode: string
+    reply_markup?: { inline_keyboard: { text: string; url: string }[][] }
+  } = {
     chat_id: chatId,
     text,
     parse_mode: 'HTML',
@@ -233,8 +239,8 @@ export async function checkAndNotifyAvitoReviews(): Promise<{
 
         newReviewsFound++
       }
-    } catch (err: any) {
-      const msg = `Ошибка аккаунта «${acc.name}»: ${err?.message || String(err)}`
+    } catch (err: unknown) {
+      const msg = `Ошибка аккаунта «${acc.name}»: ${err instanceof Error ? err.message : String(err)}`
       console.error(`[AvitoReviewsService] ${msg}`)
       errors.push(msg)
     }

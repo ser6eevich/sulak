@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { verifySessionToken } from '@/lib/auth'
+import { SESSION_COOKIE_NAME, verifySessionToken } from '@/lib/auth'
 
 /**
  * Middleware для защиты маршрутов и проверки JWT-сессии.
  * Полностью совместим с Next.js Edge Runtime (без импорта Node.js / Prisma модулей).
  */
-export async function middleware(request: NextRequest) {
-  const token = request.cookies.get('sulak_session')?.value
+export async function proxy(request: NextRequest) {
+  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value
   const session = token ? await verifySessionToken(token) : null
   const path = request.nextUrl.pathname
   const isLoginPage = path === '/login'

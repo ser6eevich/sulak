@@ -1,36 +1,37 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Сулак CRM
 
-## Getting Started
+Внутренняя CRM на Next.js 16, PostgreSQL, Prisma и S3-совместимом хранилище.
 
-First, run the development server:
+## Локальный запуск
+
+1. Скопируйте `.env.example` в `.env.local` и задайте собственные значения.
+2. Установите зависимости: `npm install`.
+3. Подключите существующую совместимую PostgreSQL-базу.
+4. Запустите приложение: `npm run dev`.
+
+Минимальные проверки перед отправкой изменений:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npx tsc --noEmit
+npm test
+npm run lint
+npm run build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Production
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Локальная и серверная PostgreSQL — разные базы. Ссылки на фотографии хранятся в PostgreSQL, сами файлы — в S3. Не копируйте локальную базу поверх серверной.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Production-база имеет фиксированную структуру. Обычный деплой приложения не
+должен выполнять `prisma db push`, `prisma migrate deploy`, seed-скрипты или SQL
+на изменение структуры. `prisma generate` разрешён: он обновляет только клиент
+приложения и не меняет базу.
 
-## Learn More
+Перед первым деплоем этой версии:
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Сделайте дамп production PostgreSQL и архив текущего приложения.
+2. Сверьте `prisma/schema.prisma` с фактической production-схемой без применения изменений.
+3. Задайте случайные `JWT_SECRET` и `SETTINGS_ENCRYPTION_KEY` длиной не менее 32 символов. Смена JWT-ключа завершит старые сессии; ключ шифрования нельзя менять без процедуры ротации.
+4. Выполните `npm ci`, `npm run build` и перезапустите приложение.
+5. Проверьте вход, сотрудников, заказы с фото, Яндекс.Диск, S3 и cron-задачи.
+6. По очереди пересохраните секреты Telegram, amoCRM, Авито и Яндекс.Диска — старые значения читаются как legacy plaintext, новые записываются с AES-256-GCM.

@@ -1,11 +1,16 @@
 import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
 
-const JWT_SECRET_KEY = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'sulak-secret-key-2026-very-secure-local-auth'
-)
+export const SESSION_COOKIE_NAME = 'sulak_session'
+const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
 
-const COOKIE_NAME = 'sulak_session'
+function getJwtSecret(): Uint8Array {
+  const secret = process.env.JWT_SECRET
+  if (!secret || secret.length < 32) {
+    throw new Error('JWT_SECRET должен быть задан и содержать не менее 32 символов')
+  }
+  return new TextEncoder().encode(secret)
+}
 
 export interface SessionPayload {
   userId: string
@@ -21,8 +26,8 @@ export async function createSessionToken(payload: SessionPayload): Promise<strin
   return new SignJWT({ ...payload })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime('30d')
-    .sign(JWT_SECRET_KEY)
+    .setExpirationTime('7d')
+    .sign(getJwtSecret())
 }
 
 /**
@@ -30,7 +35,7 @@ export async function createSessionToken(payload: SessionPayload): Promise<strin
  */
 export async function verifySessionToken(token: string): Promise<SessionPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, JWT_SECRET_KEY)
+    const { payload } = await jwtVerify(token, getJwtSecret())
     if (payload && typeof payload.userId === 'string') {
       return {
         userId: payload.userId,
@@ -51,12 +56,12 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
 export async function setSessionCookie(payload: SessionPayload) {
   const token = await createSessionToken(payload)
   const cookieStore = await cookies()
-  cookieStore.set(COOKIE_NAME, token, {
+  cookieStore.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',
-    maxAge: 30 * 24 * 60 * 60, // 30 дней в секундах
+    maxAge: SESSION_TTL_SECONDS,
   })
 }
 
@@ -65,7 +70,7 @@ export async function setSessionCookie(payload: SessionPayload) {
  */
 export async function deleteSessionCookie() {
   const cookieStore = await cookies()
-  cookieStore.set(COOKIE_NAME, '', {
+  cookieStore.set(SESSION_COOKIE_NAME, '', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
@@ -80,7 +85,7 @@ export async function deleteSessionCookie() {
 export async function getCurrentUserSession(): Promise<SessionPayload | null> {
   try {
     const cookieStore = await cookies()
-    const token = cookieStore.get(COOKIE_NAME)?.value
+    const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
     if (!token) return null
     return await verifySessionToken(token)
   } catch {

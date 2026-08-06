@@ -6,6 +6,7 @@ export interface LeadsStats {
 
 export class LeadsAnalytics {
   async calculateForDate(dateString: string): Promise<LeadsStats> {
+    void dateString
     // Заготовка под расширение аналитики сделок amoCRM
     return {
       newLeads: 0,

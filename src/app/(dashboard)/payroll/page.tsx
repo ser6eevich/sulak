@@ -2,7 +2,6 @@ import prisma from '@/lib/prisma'
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import PayrollClient from './PayrollClient'
-import { DollarSign } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,15 +24,14 @@ export default async function PayrollPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-[var(--text-primary)] flex items-center gap-2">
-            <DollarSign className="h-5 w-5 text-[var(--accent-primary)]" />
-            Расчет зарплаты менеджеров
+          <h1 className="text-xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+            Расчёт зарплаты
           </h1>
-          <p className="text-xs font-normal text-[var(--text-secondary)] mt-1">
-            Автоматический расчет выплат на основе сетки ставок, объема доставленных заказов и коэффициента отзывов
+          <p className="mt-1 text-xs font-normal text-[var(--text-secondary)]">
+            Начисления менеджерам по доставленным заказам, ставкам и отзывам клиентов
           </p>
         </div>
       </div>

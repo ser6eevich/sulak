@@ -51,7 +51,7 @@ sudo -u postgres psql
 
 ```sql
 CREATE DATABASE sulak_db;
-CREATE USER sulak_user WITH PASSWORD 'VanyayA1';
+CREATE USER sulak_user WITH PASSWORD 'generate-a-unique-strong-password';
 GRANT ALL PRIVILEGES ON DATABASE sulak_db TO sulak_user;
 ALTER DATABASE sulak_db OWNER TO sulak_user;
 \q
@@ -90,27 +90,27 @@ NODE_ENV=production
 NEXT_PUBLIC_APP_URL=https://stoly.srp-lsp.ru
 
 # ── База данных PostgreSQL ──
-DATABASE_URL="postgresql://sulak_user:VanyayA1@localhost:5432/sulak_db?schema=public"
+DATABASE_URL="postgresql://sulak_user:your-strong-password@localhost:5432/sulak_db?schema=public"
 
 # ── S3 Облачное хранилище Timeweb Cloud (для фото) ──
 S3_BUCKET_NAME=stoly
 S3_REGION=ru-1
-S3_ACCESS_KEY_ID=LGU722WUDGASIHZP39WL
-S3_SECRET_ACCESS_KEY=bJ8gDJpwn2Q5BImd7tbnCthI5Vbt5vljDl84YAzB
+S3_ACCESS_KEY_ID=your-s3-access-key-id
+S3_SECRET_ACCESS_KEY=your-s3-secret-access-key
 S3_ENDPOINT=https://s3.twcstorage.ru
 S3_PUBLIC_URL_PREFIX=https://stoly.s3.twcstorage.ru
 
 # ── Telegram Уведомления ──
-TELEGRAM_BOT_TOKEN=8740932255:AAFr6dNDwAUgDobwgUNIzQDc8SAV3Ks21TM
-TELEGRAM_CHAT_ID=1803301964
+TELEGRAM_BOT_TOKEN=your-telegram-bot-token
+TELEGRAM_CHAT_ID=your-telegram-chat-id
 
 # ── Защита крон-задач ──
-CRON_SECRET=SulakCronSecretKey2026!
+CRON_SECRET=generate-a-long-random-cron-secret
 
 # ── Web Push Уведомления (iOS PWA) ──
-NEXT_PUBLIC_VAPID_PUBLIC_KEY=BFdlQdGaOr2s2EZFkpbh8fAg0g_yhTpTkkqGofWUQlkp3KastoOIIN9jCEKpCwRMv6wQvjyNb32RExefKams7yE
-VAPID_PUBLIC_KEY=BFdlQdGaOr2s2EZFkpbh8fAg0g_yhTpTkkqGofWUQlkp3KastoOIIN9jCEKpCwRMv6wQvjyNb32RExefKams7yE
-VAPID_PRIVATE_KEY=soQ13IlcpmZqxh4A5-AznjUFlnunp87IIMRnRwxT3ag
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=your-vapid-public-key
+VAPID_PUBLIC_KEY=your-vapid-public-key
+VAPID_PRIVATE_KEY=your-vapid-private-key
 VAPID_SUBJECT=mailto:admin@sulak.ru
 ```
 
@@ -129,19 +129,21 @@ sudo chmod 600 /swapfile
 sudo mkswap /swapfile
 sudo swapon /swapfile
 
-# 2. Применяем структуру таблиц к базе данных
-npx prisma migrate deploy
-
-# 3. Сборка проекта Next.js
+# 2. Сборка проекта Next.js. Внутри выполняется только prisma generate —
+#    эта команда создаёт клиент приложения и не меняет PostgreSQL.
 NODE_OPTIONS="--max-old-space-size=4096" npm run build
 
-# 4. Запускаем сайт в PM2 (работает 24/7)
+# 3. Запускаем сайт в PM2 (работает 24/7)
 pm2 start npm --name "sulak" -- run start
 
 # Настраиваем автозапуск PM2 при перезагрузке самого сервера
 pm2 save
 pm2 startup
 ```
+
+> В production-деплое запрещены `prisma db push`, `prisma migrate deploy` и
+> seed-скрипты: существующая база сервера используется без изменения структуры
+> и данных.
 
 ---
 
@@ -221,7 +223,7 @@ sudo certbot --nginx -d stoly.srp-lsp.ru
    ```
 2. В самый конец файла добавьте следующую строчку:
    ```text
-   0 * * * * curl -s "http://localhost:3000/api/cron/check-avito-reviews?secret=SulakCronSecretKey2026!" > /dev/null 2>&1
+   0 * * * * curl -s -H "Authorization: Bearer $CRON_SECRET" "http://localhost:3000/api/cron/check-avito-reviews" > /dev/null 2>&1
    ```
 3. Сохраните файл (**Ctrl + O** -> **Enter** -> **Ctrl + X**).
 

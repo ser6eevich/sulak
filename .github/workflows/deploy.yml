@@ -23,7 +23,7 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
           script: |
-            set -e
+            set -euo pipefail
             echo "🚀 Начинаем деплой обновления..."
             
             # Переходим в папку проекта на сервере
@@ -46,19 +46,28 @@ jobs:
               git clone https://github.com/ser6eevich/sulak.git .
             else
               git fetch origin
-              git reset --hard origin/master || git reset --hard origin/main
+              git reset --hard "origin/${{ github.ref_name }}"
             fi
 
-            # Устанавливаем зависимости
-            npm install --production=false
+            # Production-конфигурация хранится только на сервере и не попадает в Git.
+            test -f .env
+            chmod 600 .env
+            for required_key in DATABASE_URL JWT_SECRET SETTINGS_ENCRYPTION_KEY; do
+              grep -q "^${required_key}=" .env || {
+                echo "❌ В .env отсутствует обязательный ключ ${required_key}"
+                exit 1
+              }
+            done
 
-            # Применяем структуру и создаем таблицы базы данных PostgreSQL
-            npx prisma db push --accept-data-loss
+            # Чистая установка строго по package-lock.json.
+            npm ci --include=dev
 
-            # Сборка Next.js проекта с выделением 2.5GB виртуальной памяти Node V8
-            NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS="--max-old-space-size=2560" npm run build
+            # npm run build выполняет prisma generate, который создаёт только клиент
+            # приложения. Команды db push/migrate здесь намеренно запрещены: деплой
+            # не должен менять структуру или данные production PostgreSQL.
+            NEXT_DEPLOYMENT_ID="${{ github.sha }}" NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS="--max-old-space-size=2560" npm run build
 
             # Перезапуск процесса в PM2
-            pm2 restart sulak || pm2 start npm --name "sulak" -- run start
+            pm2 restart sulak --update-env || pm2 start npm --name "sulak" -- run start
 
             echo "✅ Деплой успешно завершён!"

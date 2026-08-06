@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { uploadFileToStorage } from '@/lib/storage'
 import crypto from 'crypto'
+import { requireAccess } from '@/lib/auth/dal'
+import { fetchTrustedYandexImage } from '@/lib/security/remote-image'
+import { getYandexDiskSettings } from '@/lib/yandex-disk/settings'
 
 export async function POST(request: NextRequest) {
   try {
-    const { path, fileUrl } = await request.json()
+    await requireAccess('orders', ['admin', 'owner', 'manager', 'production', 'warehouse', 'logistician', 'driver'])
+    const { path } = (await request.json()) as { path?: unknown }
 
-    if (!path) {
+    if (typeof path !== 'string' || !path || path.length > 1024) {
       return NextResponse.json({ error: 'Путь к файлу на Яндекс.Диске обязателен' }, { status: 400 })
     }
 
@@ -22,54 +26,31 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. ФАЙЛ ВЫБРАН ВПЕРВЫЕ — СКАЧИВАЕМ С ЯНДЕКС.ДИСКА
-    let downloadUrl = fileUrl
+    const { publicUrl, oauthToken } = await getYandexDiskSettings()
+    let yandexApiUrl = ''
+    const headers: Record<string, string> = {}
 
-    if (!downloadUrl) {
-      // Запрашиваем прямую ссылку на скачивание через Yandex API
-      const settings = await prisma.$queryRawUnsafe<{ key: string; value: string }[]>(
-        `SELECT key, value FROM public.system_settings WHERE key IN ('yandex_disk_public_url', 'yandex_disk_token')`
-      )
-
-      let publicUrl = process.env.YANDEX_DISK_PUBLIC_URL || ''
-      let oauthToken = process.env.YANDEX_DISK_TOKEN || ''
-
-      for (const s of settings) {
-        if (s.key === 'yandex_disk_public_url' && s.value) publicUrl = s.value.trim()
-        if (s.key === 'yandex_disk_token' && s.value) oauthToken = s.value.trim()
-      }
-
-      let yandexApiUrl = ''
-      const headers: Record<string, string> = {}
-
-      if (publicUrl) {
-        yandexApiUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=${encodeURIComponent(publicUrl)}&path=${encodeURIComponent(path)}`
-      } else if (oauthToken) {
-        yandexApiUrl = `https://cloud-api.yandex.net/v1/disk/resources/download?path=${encodeURIComponent(path)}`
-        headers['Authorization'] = `OAuth ${oauthToken}`
-      }
-
-      if (yandexApiUrl) {
-        const linkRes = await fetch(yandexApiUrl, { headers })
-        if (linkRes.ok) {
-          const linkData = await linkRes.json()
-          downloadUrl = linkData.href
-        }
-      }
+    if (publicUrl) {
+      yandexApiUrl = `https://cloud-api.yandex.net/v1/disk/public/resources/download?public_key=${encodeURIComponent(publicUrl)}&path=${encodeURIComponent(path)}`
+    } else if (oauthToken) {
+      yandexApiUrl = `https://cloud-api.yandex.net/v1/disk/resources/download?path=${encodeURIComponent(path)}`
+      headers.Authorization = `OAuth ${oauthToken}`
     }
+
+    if (!yandexApiUrl) return NextResponse.json({ error: 'Яндекс.Диск не настроен' }, { status: 400 })
+
+    const linkRes = await fetch(yandexApiUrl, { headers, cache: 'no-store', signal: AbortSignal.timeout(10_000) })
+    if (!linkRes.ok) return NextResponse.json({ error: 'Не удалось получить файл с Яндекс.Диска' }, { status: 502 })
+    const linkData = (await linkRes.json()) as { href?: string }
+    const downloadUrl = linkData.href
 
     if (!downloadUrl) {
       return NextResponse.json({ error: 'Не удалось получить ссылку для скачивания файла с Яндекс.Диска' }, { status: 400 })
     }
 
     // Скачиваем бинарные данные картинки
-    const imgRes = await fetch(downloadUrl)
-    if (!imgRes.ok) {
-      return NextResponse.json({ error: 'Ошибка скачивания фото с Яндекс.Диска' }, { status: 500 })
-    }
-
-    const contentType = imgRes.headers.get('content-type') || 'image/jpeg'
-    const arrayBuffer = await imgRes.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
+    const { bytes, contentType } = await fetchTrustedYandexImage(downloadUrl, 15 * 1024 * 1024)
+    const buffer = Buffer.from(bytes)
 
     const ext = path.split('.').pop()?.toLowerCase() || 'jpg'
     const uniqueFileName = `yandex_${crypto.randomUUID()}.${ext}`
@@ -88,8 +69,10 @@ export async function POST(request: NextRequest) {
     console.log(`[YandexDiskCache] Сохранено новое фото в S3 и запись в кэше: ${path} -> ${s3Url}`)
 
     return NextResponse.json({ imageUrl: s3Url, cached: false })
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Ошибка yandex-disk/select-photo:', err)
-    return NextResponse.json({ error: err.message || 'Ошибка сервера' }, { status: 500 })
+    const message = err instanceof Error ? err.message : 'Ошибка сервера'
+    const status = message === 'Не авторизован' ? 401 : message === 'Недостаточно прав' ? 403 : 500
+    return NextResponse.json({ error: message }, { status })
   }
 }

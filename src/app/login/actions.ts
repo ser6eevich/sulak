@@ -4,6 +4,16 @@ import prisma from '@/lib/prisma'
 import { setSessionCookie, deleteSessionCookie } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import bcrypt from 'bcryptjs'
+import { getCurrentProfile } from '@/lib/auth/dal'
+import { validatePassword } from '@/lib/auth/password'
+import {
+  assertLoginAllowed,
+  clearLoginFailures,
+  recordLoginFailure,
+} from '@/lib/auth/login-rate-limit'
+
+const INVALID_CREDENTIALS = 'Неверный логин или пароль'
+const DUMMY_PASSWORD_HASH = '$2b$10$7EqJtq98hPqEX7fNZaFWoO5rQj2uH5jvCr1h4F9nT3vPjQtOSJQHe'
 
 export async function loginAction(prevState: { error: string } | null, formData: FormData) {
   const loginInput = (formData.get('email') as string || '').trim().toLowerCase()
@@ -11,6 +21,12 @@ export async function loginAction(prevState: { error: string } | null, formData:
 
   if (!loginInput || !password) {
     return { error: 'Пожалуйста, заполните все поля' }
+  }
+
+  try {
+    await assertLoginAllowed(loginInput)
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : 'Вход временно ограничен' }
   }
 
   // Находим пользователя по email или названию
@@ -24,36 +40,13 @@ export async function loginAction(prevState: { error: string } | null, formData:
     },
   })
 
-  if (!profile) {
-    return { error: 'Пользователь с таким логином не найден' }
+  const isPasswordValid = await bcrypt.compare(password, profile?.passwordHash ?? DUMMY_PASSWORD_HASH)
+  if (!profile || !profile.isActive || !profile.passwordHash || !isPasswordValid) {
+    await recordLoginFailure(loginInput)
+    return { error: INVALID_CREDENTIALS }
   }
 
-  if (!profile.isActive) {
-    return { error: 'Ваш аккаунт заблокирован администратором' }
-  }
-
-  // Читаем password_hash напрямую из базы (устойчиво к кэшу Prisma в dev-сервере)
-  const rawHashRes = await prisma.$queryRawUnsafe<{ password_hash: string | null }[]>(
-    `SELECT password_hash FROM public.profiles WHERE id = $1::uuid`,
-    profile.id
-  )
-  const passwordHash = rawHashRes?.[0]?.password_hash
-
-  // Проверка пароля по хэшу
-  if (passwordHash) {
-    const isPasswordValid = bcrypt.compareSync(password, passwordHash)
-    if (!isPasswordValid) {
-      return { error: 'Неверный логин или пароль' }
-    }
-  } else {
-    // При первом входе автоматически сохраняем введённый пароль
-    const newHash = bcrypt.hashSync(password, 10)
-    await prisma.$executeRawUnsafe(
-      `UPDATE public.profiles SET password_hash = $1 WHERE id = $2::uuid`,
-      newHash,
-      profile.id
-    )
-  }
+  await clearLoginFailures(loginInput)
 
   const userPerms = (profile.permissions as Record<string, boolean>) || {}
   if (password === '123456') {
@@ -102,32 +95,24 @@ export async function logoutAction() {
 
 export async function changeOwnPasswordAction(newPasswordStr: string) {
   try {
-    const { getCurrentUserSession } = await import('@/lib/auth')
-    const session = await getCurrentUserSession()
-    if (!session) return { error: 'Сессия истекла, войдите заново' }
+    const profile = await getCurrentProfile()
+    if (!profile) return { error: 'Сессия истекла, войдите заново' }
 
-    if (!newPasswordStr || newPasswordStr.length < 3) {
-      return { error: 'Пароль должен содержать не менее 3 символов' }
-    }
+    const passwordError = validatePassword(newPasswordStr)
+    if (passwordError) return { error: passwordError }
 
-    const profile = await prisma.profile.findUnique({
-      where: { id: session.userId }
-    })
-
-    if (!profile) return { error: 'Пользователь не найден' }
-
-    const passwordHash = bcrypt.hashSync(newPasswordStr, 10)
+    const passwordHash = await bcrypt.hash(newPasswordStr, 12)
 
     const currentPerms = (profile.permissions as Record<string, boolean>) || {}
     const updatedPerms = { ...currentPerms }
     delete updatedPerms.mustChangePassword
 
     await prisma.profile.update({
-      where: { id: session.userId },
+      where: { id: profile.id },
       data: {
         passwordHash,
-        permissions: updatedPerms
-      }
+        permissions: updatedPerms,
+      },
     })
 
     // Обновляем сессионную куку
@@ -149,7 +134,7 @@ export async function changeOwnPasswordAction(newPasswordStr: string) {
     })
 
     return { success: true }
-  } catch (error: any) {
-    return { error: error.message || 'Не удалось обновить пароль' }
+  } catch (error: unknown) {
+    return { error: error instanceof Error ? error.message : 'Не удалось обновить пароль' }
   }
 }

@@ -42,8 +42,8 @@ export async function POST(req: Request) {
     await webpush.sendNotification(subscription, payload)
 
     return NextResponse.json({ success: true, message: 'Push-уведомление отправлено на iPhone!' })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Ошибка отправки Web Push:', error)
-    return NextResponse.json({ error: error.message || 'Ошибка отправки push' }, { status: 500 })
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Ошибка отправки push' }, { status: 500 })
   }
 }
