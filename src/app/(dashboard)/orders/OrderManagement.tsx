@@ -727,24 +727,33 @@ export default function OrderManagement({
 
   // Вставка фото из буфера обмена при создании заказа
   const handleCreateImagePaste = async (subIdx: number) => {
-    // Сначала пробуем через Clipboard API (работает в Chrome/Firefox с разрешением)
+    setPasteTargetCreateSubIdx(subIdx)
     try {
-      const clipboardItems = await navigator.clipboard.read()
-      for (const item of clipboardItems) {
-        const imageType = item.types.find(t => t.startsWith('image/'))
-        if (imageType) {
-          const blob = await item.getType(imageType)
-          const ext = imageType.split('/')[1] || 'png'
-          await handleCreateImageUpload(blob, `clipboard-paste.${ext}`, subIdx)
+      if (navigator.clipboard && navigator.clipboard.read) {
+        const clipboardItems = await navigator.clipboard.read()
+        for (const item of clipboardItems) {
+          const imageType = item.types.find(t => t.startsWith('image/'))
+          if (imageType) {
+            const blob = await item.getType(imageType)
+            const ext = imageType.split('/')[1] || 'png'
+            await handleCreateImageUpload(blob, `clipboard-paste.${ext}`, subIdx)
+            return
+          }
+        }
+      }
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        const text = await navigator.clipboard.readText()
+        if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
+          setSubOrderImages(prev => ({
+            ...prev,
+            [subIdx]: [...(prev[subIdx] || []), text.trim()]
+          }))
           return
         }
       }
-    } catch {
-      // Clipboard API недоступен — ожидаем глобальный paste-event
+    } catch (err) {
+      console.log('Clipboard API read error, waiting for Ctrl+V event:', err)
     }
-    // Fallback: активируем режим ожидания Ctrl+V / ⌘+V
-    setPasteTargetCreateSubIdx(subIdx)
-    alert('Нажмите Ctrl+V (⌘+V) чтобы вставить изображение из буфера обмена')
   }
 
   // Вспомогательная функция: парсим imageUrl в карту массивов фото по подзаказам
@@ -823,24 +832,30 @@ export default function OrderManagement({
   // Вставка фото из буфера обмена для конкретного подзаказа
   const handleSubOrderImagePaste = async (subOrderIndex: number) => {
     if (!selectedOrder) return
-    // Сначала пробуем через Clipboard API
+    setPasteTargetSubOrderIdx(subOrderIndex)
     try {
-      const clipboardItems = await navigator.clipboard.read()
-      for (const item of clipboardItems) {
-        const imageType = item.types.find(t => t.startsWith('image/'))
-        if (imageType) {
-          const blob = await item.getType(imageType)
-          const ext = imageType.split('/')[1] || 'png'
-          await uploadImageBlob(blob, `clipboard-paste.${ext}`, subOrderIndex)
+      if (navigator.clipboard && navigator.clipboard.read) {
+        const clipboardItems = await navigator.clipboard.read()
+        for (const item of clipboardItems) {
+          const imageType = item.types.find(t => t.startsWith('image/'))
+          if (imageType) {
+            const blob = await item.getType(imageType)
+            const ext = imageType.split('/')[1] || 'png'
+            await uploadImageBlob(blob, `clipboard-paste.${ext}`, subOrderIndex)
+            return
+          }
+        }
+      }
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        const text = await navigator.clipboard.readText()
+        if (text && (text.startsWith('http://') || text.startsWith('https://'))) {
+          await handleSelectYandexDiskImage(text.trim(), subOrderIndex)
           return
         }
       }
-    } catch {
-      // Clipboard API недоступен — ожидаем глобальный paste-event
+    } catch (err) {
+      console.log('Clipboard API read error, waiting for Ctrl+V event:', err)
     }
-    // Fallback: активируем режим ожидания Ctrl+V / ⌘+V
-    setPasteTargetSubOrderIdx(subOrderIndex)
-    alert('Нажмите Ctrl+V (⌘+V) чтобы вставить изображение из буфера обмена')
   }
 
   // Удаление фото конкретного подзаказа (или конкретного индекса в нем)
