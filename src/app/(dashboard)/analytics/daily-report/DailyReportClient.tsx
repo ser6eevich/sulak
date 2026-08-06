@@ -99,15 +99,12 @@ export default function DailyReportClient() {
 
         {/* Выбор даты */}
         <div className="flex items-center gap-2 shrink-0">
-          <div className="relative">
-            <Calendar className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] pointer-events-none" />
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="erp-input pl-9 text-xs font-semibold cursor-pointer"
-            />
-          </div>
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="erp-input px-3 py-1.5 text-xs font-semibold cursor-pointer w-38"
+          />
           <button
             onClick={() => fetchReport(selectedDate, missedCallsInput, totalLeadsInput === '' ? undefined : Number(totalLeadsInput))}
             disabled={loading}

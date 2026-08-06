@@ -695,3 +695,15 @@ input[type="number"] {
     display: table-cell !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════
+   DATE INPUT STYLING
+   ═══════════════════════════════════════════════════════ */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
