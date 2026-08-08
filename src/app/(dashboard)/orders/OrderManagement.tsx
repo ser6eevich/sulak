@@ -12,9 +12,14 @@ import {
   deleteOrderAction,
   updateOrderFeedbackAction,
   updateOrderImageAction,
+  findOrdersForBatchDeliveryAction,
   batchUpdateOrdersDeliveredAction
 } from './actions'
 import { normalizeAddress } from '@/utils/address'
+import {
+  extractBatchOrderNumbers,
+  type BatchDeliveryOrderPreview,
+} from '@/lib/orders/batch-delivery'
 import { YandexDiskPickerModal } from '@/components/orders/YandexDiskPickerModal'
 import { 
   Plus, 
@@ -306,49 +311,45 @@ export default function OrderManagement({
   const [batchErrorMsg, setBatchErrorMsg] = useState('')
   const [batchSuccessMsg, setBatchSuccessMsg] = useState('')
   const [batchUncheckedIds, setBatchUncheckedIds] = useState<Set<string>>(new Set())
+  const [batchMatchedOrders, setBatchMatchedOrders] = useState<BatchDeliveryOrderPreview[]>([])
+  const [batchNotFoundNumbers, setBatchNotFoundNumbers] = useState<string[]>([])
+  const [batchLookupLoading, setBatchLookupLoading] = useState(false)
+  const [batchLookupError, setBatchLookupError] = useState('')
 
-  // Функция парсинга совпадений номеров заказов
-  const parseMatchedOrders = () => {
-    if (!batchInputText.trim()) return { foundOrders: [], notFoundTokens: [] }
+  useEffect(() => {
+    if (!batchModalOpen) return
 
-    const rawTokens = Array.from(new Set(
-      batchInputText
-        .replace(/[№#]/g, ' ')
-        .split(/[\s,;\n\t]+/)
-        .map(t => t.trim())
-        .filter(Boolean)
-    ))
-
-    const foundOrders: Order[] = []
-    const foundKeys = new Set<string>()
-    const notFoundTokens: string[] = []
-
-    for (const token of rawTokens) {
-      const cleanToken = token.replace(/^0+/, '')
-      const matched = orders.find(o => {
-        const num = o.number ? String(o.number) : ''
-        const shortId = o.id.slice(-6).toUpperCase()
-        return num === cleanToken || num === token || shortId === token.toUpperCase() || o.id === token
-      })
-
-      if (matched) {
-        if (!foundKeys.has(matched.id)) {
-          foundKeys.add(matched.id)
-          foundOrders.push(matched)
-        }
-      } else {
-        if (/^\d+$/.test(cleanToken)) {
-          notFoundTokens.push(token)
-        }
+    const orderNumbers = extractBatchOrderNumbers(batchInputText)
+    let ignoreResult = false
+    const timeoutId = window.setTimeout(async () => {
+      if (orderNumbers.length === 0) {
+        setBatchMatchedOrders([])
+        setBatchNotFoundNumbers([])
+        setBatchLookupError('')
+        setBatchLookupLoading(false)
+        return
       }
-    }
 
-    return { foundOrders, notFoundTokens }
-  }
+      setBatchLookupLoading(true)
+      setBatchLookupError('')
+      const result = await findOrdersForBatchDeliveryAction(orderNumbers)
+      if (ignoreResult) return
+
+      setBatchMatchedOrders(result.orders)
+      setBatchNotFoundNumbers(result.notFoundNumbers)
+      setBatchLookupError(result.error || '')
+      setBatchUncheckedIds(new Set())
+      setBatchLookupLoading(false)
+    }, 250)
+
+    return () => {
+      ignoreResult = true
+      window.clearTimeout(timeoutId)
+    }
+  }, [batchInputText, batchModalOpen])
 
   const handleBatchSubmit = async () => {
-    const { foundOrders } = parseMatchedOrders()
-    const targetOrders = foundOrders.filter(o => !batchUncheckedIds.has(o.id))
+    const targetOrders = batchMatchedOrders.filter(o => !batchUncheckedIds.has(o.id))
 
     if (targetOrders.length === 0) {
       setBatchErrorMsg('Нет выбранных заказов для обновления')
@@ -1150,6 +1151,10 @@ export default function OrderManagement({
                 setBatchErrorMsg('')
                 setBatchSuccessMsg('')
                 setBatchUncheckedIds(new Set())
+                setBatchMatchedOrders([])
+                setBatchNotFoundNumbers([])
+                setBatchLookupLoading(false)
+                setBatchLookupError('')
                 setBatchModalOpen(true)
               }}
               className="erp-button-secondary inline-flex min-h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap !rounded-xl"
@@ -2948,7 +2953,14 @@ export default function OrderManagement({
                     rows={4}
                     placeholder="Вставьте номера заказов через запятую, пробел или из переписки.&#10;Пример: 74, 105, 118, 120&#10;Или скопированный отчёт: «Заказы №74, №105 и №118 доставлены»"
                     value={batchInputText}
-                    onChange={e => setBatchInputText(e.target.value)}
+                    onChange={e => {
+                      const nextValue = e.target.value
+                      setBatchInputText(nextValue)
+                      setBatchMatchedOrders([])
+                      setBatchNotFoundNumbers([])
+                      setBatchLookupError('')
+                      setBatchLookupLoading(extractBatchOrderNumbers(nextValue).length > 0)
+                    }}
                     className="erp-input w-full font-mono text-xs p-3 leading-relaxed"
                   />
                 </div>
@@ -2971,17 +2983,28 @@ export default function OrderManagement({
 
               {/* Результат разбора текста */}
               {(() => {
-                const { foundOrders, notFoundTokens } = parseMatchedOrders()
-                const activeCount = foundOrders.filter(o => !batchUncheckedIds.has(o.id)).length
+                const activeCount = batchMatchedOrders.filter(o => !batchUncheckedIds.has(o.id)).length
 
                 return (
                   <div className="space-y-3">
+                    {batchLookupLoading && (
+                      <div className="text-xs text-[var(--text-secondary)]">
+                        Проверяем номера по всему реестру заказов…
+                      </div>
+                    )}
+
+                    {batchLookupError && (
+                      <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-600">
+                        {batchLookupError}
+                      </div>
+                    )}
+
                     {/* Статистика по распознанным заказам */}
-                    {foundOrders.length > 0 && (
+                    {batchMatchedOrders.length > 0 && (
                       <div className="space-y-2">
                         <div className="flex items-center justify-between text-xs">
                           <span className="font-semibold text-[var(--text-primary)]">
-                            Распознано заказов в базе: {foundOrders.length} (К обновлению: {activeCount})
+                            Распознано заказов в базе: {batchMatchedOrders.length} (К обновлению: {activeCount})
                           </span>
                           {batchUncheckedIds.size > 0 && (
                             <button
@@ -3006,7 +3029,7 @@ export default function OrderManagement({
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-[var(--border-primary)] text-[var(--text-primary)]">
-                              {foundOrders.map(o => {
+                              {batchMatchedOrders.map(o => {
                                 const isChecked = !batchUncheckedIds.has(o.id)
                                 const isAlreadyDelivered = o.status === 'delivered'
                                 return (
@@ -3060,10 +3083,10 @@ export default function OrderManagement({
                     )}
 
                     {/* Ненайденные номера */}
-                    {notFoundTokens.length > 0 && (
+                    {batchNotFoundNumbers.length > 0 && (
                       <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-700 dark:text-amber-400 text-xs">
                         <span className="font-bold">⚠️ Не найдены заказы с номерами: </span>
-                        <span>{notFoundTokens.join(', ')}</span>
+                        <span>{batchNotFoundNumbers.join(', ')}</span>
                       </div>
                     )}
                   </div>
@@ -3081,16 +3104,17 @@ export default function OrderManagement({
                 Отмена
               </button>
               {(() => {
-                const { foundOrders } = parseMatchedOrders()
-                const activeCount = foundOrders.filter(o => !batchUncheckedIds.has(o.id)).length
+                const activeCount = batchMatchedOrders.filter(o => !batchUncheckedIds.has(o.id)).length
                 return (
                   <button
                     type="button"
                     onClick={handleBatchSubmit}
-                    disabled={batchLoading || activeCount === 0}
+                    disabled={batchLoading || batchLookupLoading || activeCount === 0}
                     className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-lg transition-colors cursor-pointer disabled:opacity-50 shadow-xs"
                   >
-                    {batchLoading ? (
+                    {batchLookupLoading ? (
+                      <span>Проверяем номера…</span>
+                    ) : batchLoading ? (
                       <span>Обновление заказов...</span>
                     ) : (
                       <>

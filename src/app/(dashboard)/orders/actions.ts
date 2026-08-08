@@ -10,6 +10,8 @@ import { z } from 'zod'
 import { sendOrderTelegramNotification, getTelegramSettings } from '@/utils/telegram'
 import fs from 'node:fs'
 import path from 'node:path'
+import { requireRole } from '@/lib/auth/dal'
+import type { BatchDeliveryOrderPreview } from '@/lib/orders/batch-delivery'
 
 // Схемы валидации
 const orderItemSchema = z.object({
@@ -46,6 +48,9 @@ const updateOrderSchema = createOrderSchema.extend({
   orderId: z.string().uuid('Некорректный ID заказа'),
 })
 
+const batchOrderNumbersSchema = z.array(z.string().regex(/^\d+$/)).min(1).max(500)
+const batchOrderIdsSchema = z.array(z.string().uuid()).min(1).max(500)
+
 async function checkManagerOrAbove() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -60,6 +65,51 @@ async function checkManagerOrAbove() {
   }
 
   return user.id
+}
+
+async function checkBatchDeliveryAccess() {
+  const profile = await requireRole(['admin', 'owner', 'manager', 'logistician'])
+  return profile.id
+}
+
+export async function findOrdersForBatchDeliveryAction(orderNumbers: string[]) {
+  try {
+    await checkBatchDeliveryAccess()
+
+    const normalizedNumbers = Array.from(new Set(
+      batchOrderNumbersSchema.parse(orderNumbers).map(number => number.replace(/^0+(?=\d)/, ''))
+    ))
+
+    const matchedOrders = await prisma.order.findMany({
+      where: { number: { in: normalizedNumbers } },
+      select: {
+        id: true,
+        number: true,
+        status: true,
+        totalPrice: true,
+        discount: true,
+        deliveryPrice: true,
+        assemblyPrice: true,
+        client: { select: { fullName: true } },
+      },
+    })
+
+    const ordersByNumber = new Map(matchedOrders.map(order => [order.number, order]))
+    const orders = normalizedNumbers
+      .map(number => ordersByNumber.get(number))
+      .filter((order): order is BatchDeliveryOrderPreview => Boolean(order))
+
+    return {
+      orders,
+      notFoundNumbers: normalizedNumbers.filter(number => !ordersByNumber.has(number)),
+    }
+  } catch (error: unknown) {
+    return {
+      orders: [] as BatchDeliveryOrderPreview[],
+      notFoundNumbers: [] as string[],
+      error: error instanceof Error ? error.message : 'Не удалось проверить номера заказов',
+    }
+  }
 }
 
 export async function createOrderAction(data: z.infer<typeof createOrderSchema>) {
@@ -1043,16 +1093,16 @@ ${priceBlock}${commentLine}`
  */
 export async function batchUpdateOrdersDeliveredAction(orderIds: string[], customDeliveredAt?: string | null) {
   try {
-    const currentUserId = await checkManagerOrAbove()
-
-    if (!orderIds || orderIds.length === 0) {
-      return { error: 'Не выбраны заказы для обновления' }
-    }
+    const currentUserId = await checkBatchDeliveryAccess()
+    const validatedOrderIds = batchOrderIdsSchema.parse(orderIds)
 
     let updatedCount = 0
     const deliveryDate = customDeliveredAt ? new Date(customDeliveredAt) : new Date()
+    if (Number.isNaN(deliveryDate.getTime())) {
+      return { error: 'Указана некорректная дата доставки' }
+    }
 
-    for (const orderId of orderIds) {
+    for (const orderId of validatedOrderIds) {
       const order = await prisma.order.findUnique({
         where: { id: orderId },
       })
