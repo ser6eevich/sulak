@@ -15,7 +15,6 @@ export const metadata: Metadata = {
   description: "Система управления заказами и клиентами Сулак CRM",
   manifest: "/manifest.json",
   icons: {
-    icon: "/icon-192.png",
     apple: "/apple-touch-icon.png",
   },
   appleWebApp: {

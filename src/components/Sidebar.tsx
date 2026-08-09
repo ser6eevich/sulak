@@ -229,7 +229,7 @@ export default function Sidebar({ profile }: SidebarProps) {
         )}
       </div>
 
-      <nav className={`min-h-0 flex-1 overflow-y-auto overflow-x-hidden ${collapsed ? 'space-y-3 px-2.5 pb-4' : 'space-y-5 px-3 pb-5'}`}>
+      <nav className={`erp-scrollbar-hidden min-h-0 flex-1 overflow-y-auto overflow-x-hidden ${collapsed ? 'space-y-3 px-2.5 pb-4' : 'space-y-5 px-3 pb-5'}`}>
         {groups.map((group, groupIndex) => (
           <div key={group.key} className="space-y-1">
             {!collapsed && (
