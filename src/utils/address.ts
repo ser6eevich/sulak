@@ -90,41 +90,119 @@ export function normalizeAddress(input?: string | null): string {
   return str
 }
 
-/**
- * Классификатор: относится ли адрес/город/регион к Москве и Московской области
- */
-export function isMoscowOrMoAddress(input?: {
+export interface AddressRegionInput {
   region?: string | null
   city?: string | null
   address?: string | null
   deliveryAddress?: string | null
-} | null): boolean {
-  if (!input) return false
+}
 
-  const combined = [
-    input.region || '',
-    input.city || '',
-    input.address || '',
-    input.deliveryAddress || ''
-  ].join(' ').toLowerCase()
+export type AddressRegionGroup = 'moscow' | 'near_belt' | 'other'
 
-  if (!combined.trim()) return false
+const MOSCOW_REGION_NAMES = ['москва', 'московская', 'подмосковье', 'мск', 'мо', 'м о', 'тио', 'тинао']
 
-  // Ключевые топонимы Москвы и Московской области
-  const moscowKeywords = [
-    'москва', 'мск', 'мос', 'московская', 'подмосковье', 'м.о.', 'м о', 'мо', 'тио', 'тинао',
-    'балашиха', 'подольск', 'химки', 'мытищи', 'королев', 'королёв', 'люберцы', 'красногорск', 
-    'электросталь', 'коломна', 'одинцово', 'серпухов', 'щелково', 'щёлково', 'домодедово', 
-    'орехово-зуево', 'орехово зуево', 'раменское', 'жуковский', 'пушкино', 'сергиев посад', 
-    'сергиев-посад', 'ногинск', 'долгопрудный', 'реутов', 'воскресенск', 'лобня', 'клин', 
-    'дубна', 'егорьевск', 'чехов', 'ивантеевка', 'ступино', 'павловский посад', 'дмитров', 
-    'наро-фоминск', 'фрязино', 'лыткарино', 'зержинский', 'дзержинский', 'солнечногорск', 
-    'руза', 'можайск', 'луховицы', 'кашира', 'протвино', 'пущино', 'электрогорск', 
-    'черноголовка', 'котельники', 'волоколамск', 'кубинка', 'голицыно', 'яхрома', 'талдом', 
-    'высоковск', 'дрезна', 'зарайск', 'пересвет', 'краснозаводск', 'рошаль', 'куровское', 
-    'хотьково', 'истра', 'апрелевка', 'бронницы', 'звенигород', 'краснознаменск', 'шатура', 
-    'старая купавна', 'электроугли', 'дедовск', 'птицеградская'
-  ]
+const MOSCOW_LOCALITIES = [
+  'балашиха', 'подольск', 'химки', 'мытищи', 'королев', 'люберцы', 'красногорск',
+  'электросталь', 'коломна', 'одинцово', 'серпухов', 'щелково', 'домодедово',
+  'орехово зуево', 'раменское', 'жуковский', 'пушкино', 'сергиев посад', 'ногинск',
+  'долгопрудный', 'реутов', 'воскресенск', 'лобня', 'клин', 'дубна', 'егорьевск',
+  'чехов', 'ивантеевка', 'ступино', 'павловский посад', 'дмитров', 'наро фоминск',
+  'фрязино', 'лыткарино', 'дзержинский', 'солнечногорск', 'руза', 'можайск',
+  'луховицы', 'кашира', 'протвино', 'пущино', 'электрогорск', 'черноголовка',
+  'котельники', 'волоколамск', 'кубинка', 'голицыно', 'яхрома', 'талдом',
+  'высоковск', 'дрезна', 'зарайск', 'пересвет', 'краснозаводск', 'рошаль',
+  'куровское', 'хотьково', 'истра', 'апрелевка', 'бронницы', 'звенигород',
+  'краснознаменск', 'шатура', 'старая купавна', 'электроугли', 'дедовск',
+  'зержинский', 'птицеградская',
+]
 
-  return moscowKeywords.some(keyword => combined.includes(keyword))
+const NEAR_BELT_REGION_STEMS = [
+  'калуж',
+  'тульск',
+  'рязан',
+  'владимирск',
+  'тверск',
+  'ярославск',
+  'смоленск',
+]
+
+const NEAR_BELT_CAPITALS = [
+  'калуга',
+  'тула',
+  'рязань',
+  'владимир',
+  'тверь',
+  'ярославль',
+  'смоленск',
+]
+
+function normalizeRegionText(value?: string | null): string {
+  return (value || '')
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/[^a-zа-я0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function hasWholePhrase(text: string, phrase: string): boolean {
+  return ` ${text} `.includes(` ${phrase} `)
+}
+
+function hasNearBeltRegionName(text: string): boolean {
+  const tokens = text.split(' ')
+  return tokens.some(token => NEAR_BELT_REGION_STEMS.some(stem => token.startsWith(stem)))
+}
+
+/**
+ * Распределяет адрес строго в одну из групп региональной статистики.
+ * Явно указанная область имеет приоритет над совпадением по названию города.
+ */
+export function classifyAddressRegion(input?: AddressRegionInput | null): AddressRegionGroup {
+  if (!input) return 'other'
+
+  const region = normalizeRegionText(input.region)
+  const city = normalizeRegionText(input.city)
+  const address = normalizeRegionText(input.address)
+  const deliveryAddress = normalizeRegionText(input.deliveryAddress)
+  const combined = [region, city, address, deliveryAddress].filter(Boolean).join(' ')
+  const localityText = [city, address, deliveryAddress].filter(Boolean).join(' ')
+
+  if (!combined) return 'other'
+
+  // Поле региона считается самым надёжным источником.
+  if (hasNearBeltRegionName(region)) return 'near_belt'
+  if (MOSCOW_REGION_NAMES.some(name => hasWholePhrase(region, name))) return 'moscow'
+
+  // В свободном адресе область должна быть указана явно, чтобы улица с похожим
+  // названием не меняла категорию заказа.
+  const hasNearBeltArea = NEAR_BELT_REGION_STEMS.some(stem =>
+    new RegExp(`(?:^| )${stem}[^ ]* (?:обл|область|области)(?: |$)`).test(combined)
+  )
+  if (hasNearBeltArea) return 'near_belt'
+
+  const hasMoscowArea = [
+    'москва',
+    'московская обл',
+    'московская область',
+    'подмосковье',
+    'мск',
+    'мо',
+    'м о',
+    'тио',
+    'тинао',
+  ].some(name => hasWholePhrase(combined, name))
+  if (hasMoscowArea) return 'moscow'
+
+  if (NEAR_BELT_CAPITALS.some(name => hasWholePhrase(localityText, name))) return 'near_belt'
+  if (MOSCOW_LOCALITIES.some(name => hasWholePhrase(localityText, name))) return 'moscow'
+
+  return 'other'
+}
+
+/**
+ * Совместимый предикат для существующей аналитики и экспорта МСК/МО.
+ */
+export function isMoscowOrMoAddress(input?: AddressRegionInput | null): boolean {
+  return classifyAddressRegion(input) === 'moscow'
 }

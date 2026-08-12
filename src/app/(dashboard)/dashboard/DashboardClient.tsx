@@ -17,7 +17,7 @@ import {
   AlertCircle,
   ArrowRight,
 } from 'lucide-react'
-import { isMoscowOrMoAddress } from '@/utils/address'
+import { classifyAddressRegion } from '@/utils/address'
 import { getRoleLabel } from '@/utils/roles'
 
 interface AnalyticsOrderItem {
@@ -107,6 +107,27 @@ const DATE_MODES: { key: DateMode; label: string }[] = [
   { key: 'single',    label: 'День' },
   { key: 'range',     label: 'Период' },
 ]
+
+function calculatePercentages(counts: number[]): number[] {
+  const total = counts.reduce((sum, count) => sum + count, 0)
+  if (total === 0) return counts.map(() => 0)
+
+  const exact = counts.map(count => (count / total) * 100)
+  const rounded = exact.map(Math.floor)
+  let remainder = 100 - rounded.reduce((sum, value) => sum + value, 0)
+
+  const indexesByFraction = exact
+    .map((value, index) => ({ index, fraction: value - Math.floor(value) }))
+    .sort((a, b) => b.fraction - a.fraction)
+
+  for (const { index } of indexesByFraction) {
+    if (remainder === 0) break
+    rounded[index] += 1
+    remainder -= 1
+  }
+
+  return rounded
+}
 
 // Человекочитаемое название действия из audit-лога
 function formatAction(action: string): string {
@@ -205,24 +226,42 @@ export default function DashboardClient({
     })
   }, [allOrders, dateMode, singleDate, fromDate, toDate])
 
-  // Гео-расчёт МСК/МО
+  // Гео-расчёт по трём взаимоисключающим группам
   const geo = useMemo(() => {
-    let mskCount = 0, mskRev = 0, regCount = 0, regRev = 0
+    let mskCount = 0, mskRev = 0
+    let beltCount = 0, beltRev = 0
+    let regCount = 0, regRev = 0
     const mskList: AnalyticsOrder[] = []
 
     filteredOrders.forEach(o => {
-      const isMsk = isMoscowOrMoAddress({
+      const regionGroup = classifyAddressRegion({
         region: o.client?.region, city: o.client?.city,
         address: o.client?.address, deliveryAddress: o.deliveryAddress,
       })
       const price = (o.totalPrice - o.discount + o.deliveryPrice + o.assemblyPrice) / 100
-      if (isMsk) { mskCount++; mskRev += price; mskList.push(o) }
-      else        { regCount++; regRev += price }
+
+      if (regionGroup === 'moscow') {
+        mskCount++
+        mskRev += price
+        mskList.push(o)
+      } else if (regionGroup === 'near_belt') {
+        beltCount++
+        beltRev += price
+      } else {
+        regCount++
+        regRev += price
+      }
     })
 
     const total = filteredOrders.length
-    const mskPct = total > 0 ? Math.round((mskCount / total) * 100) : 0
-    return { mskCount, mskRev, mskPct, regCount, regRev, regPct: total > 0 ? 100 - mskPct : 0, total, mskList }
+    const [mskPct, beltPct, regPct] = calculatePercentages([mskCount, beltCount, regCount])
+
+    return {
+      mskCount, mskRev, mskPct,
+      beltCount, beltRev, beltPct,
+      regCount, regRev, regPct,
+      total, mskList,
+    }
   }, [filteredOrders])
 
   // Агрегация топ-позиций по МСК/МО заказам
@@ -333,8 +372,9 @@ export default function DashboardClient({
           )}
 
           <div className="p-5">
-            <div className="mb-6 flex h-3 overflow-hidden rounded-full bg-[var(--bg-surface-secondary)]" aria-label={`Москва и МО ${geo.mskPct}%, регионы ${geo.regPct}%`}>
+            <div className="mb-6 flex h-3 overflow-hidden rounded-full bg-[var(--bg-surface-secondary)]" aria-label={`Москва и МО ${geo.mskPct}%, Ближний пояс ${geo.beltPct}%, остальные регионы ${geo.regPct}%`}>
               <div className="h-full bg-[var(--accent-primary)] transition-[width] duration-200" style={{ width: `${geo.mskPct}%` }} />
+              <div className="h-full bg-[var(--warning)] transition-[width] duration-200" style={{ width: `${geo.beltPct}%` }} />
               <div className="h-full bg-[var(--data-teal)] transition-[width] duration-200" style={{ width: `${geo.regPct}%` }} />
             </div>
 
@@ -354,9 +394,22 @@ export default function DashboardClient({
               </div>
               <div className="grid grid-cols-[1fr_auto] gap-5 py-4">
                 <div className="flex items-start gap-3">
+                  <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-[var(--warning)]" />
+                  <div>
+                    <p className="text-sm font-medium text-[var(--text-primary)]">Ближний пояс</p>
+                    <p className="mt-1 text-[11px] text-[var(--text-tertiary)]">{geo.beltCount} заказов</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-semibold tracking-[-0.04em] text-[var(--warning)]">{geo.beltPct}%</p>
+                  <p className="mt-1 text-xs font-medium text-[var(--text-primary)]">{geo.beltRev.toLocaleString('ru-RU')} ₽</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-[1fr_auto] gap-5 py-4">
+                <div className="flex items-start gap-3">
                   <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-[var(--data-teal)]" />
                   <div>
-                    <p className="text-sm font-medium text-[var(--text-primary)]">Регионы РФ</p>
+                    <p className="text-sm font-medium text-[var(--text-primary)]">Остальные регионы</p>
                     <p className="mt-1 text-[11px] text-[var(--text-tertiary)]">{geo.regCount} заказов</p>
                   </div>
                 </div>
