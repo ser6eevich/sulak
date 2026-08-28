@@ -95,6 +95,7 @@ interface Order {
   id: string
   number?: string | null
   status: string
+  paymentStatus: string
   totalPrice: number
   discount: number
   deliveryPrice: number
@@ -103,6 +104,7 @@ interface Order {
   deliveryAddress: string | null
   comment: string | null
   createdAt: Date | string
+  deliveredAt?: Date | string | null
   client: Client
   creator: {
     fullName: string
@@ -185,6 +187,12 @@ const STATUSES: Record<string, { label: string }> = {
   delivery: { label: 'Доставляется' },
   delivered: { label: 'Доставлен' },
   cancelled: { label: 'Отменен' },
+}
+
+function toDateTimeLocalValue(value: Date | string) {
+  const date = new Date(value)
+  const localTime = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return localTime.toISOString().slice(0, 16)
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -663,6 +671,7 @@ export default function OrderManagement({
       })),
       customCreatedAt: isRetroactive && customCreatedAt ? new Date(customCreatedAt).toISOString() : null,
       customDeliveredAt: isRetroactive && customDeliveredAt && customStatus === 'delivered' ? new Date(customDeliveredAt).toISOString() : null,
+      isRetroactive,
       status: isRetroactive ? customStatus : 'pending',
       paymentStatus: isRetroactive ? customPaymentStatus : 'unpaid',
       plannedDeliveryDate: plannedDeliveryDate ? new Date(plannedDeliveryDate).toISOString() : null,
@@ -702,6 +711,11 @@ export default function OrderManagement({
     setComment(order.comment || '')
     setSellerId(order.sellerId || (order.seller ? order.seller.id : currentUserId))
     setPlannedDeliveryDate(order.plannedDeliveryDate ? new Date(order.plannedDeliveryDate).toISOString().slice(0, 10) : '')
+    setIsRetroactive(false)
+    setCustomCreatedAt(toDateTimeLocalValue(order.createdAt))
+    setCustomDeliveredAt(order.deliveredAt ? toDateTimeLocalValue(order.deliveredAt) : '')
+    setCustomStatus(order.status)
+    setCustomPaymentStatus(order.paymentStatus)
     
     // Подтягиваем имеющиеся фото комплекта через parseOrderImages
     const parsed = parseOrderImages(order.imageUrl)
@@ -2360,11 +2374,11 @@ export default function OrderManagement({
                           checked={isRetroactive}
                           onChange={e => {
                             setIsRetroactive(e.target.checked)
-                            if (e.target.checked) {
-                              setCustomCreatedAt(new Date().toISOString().slice(0, 16))
+                            if (e.target.checked && !editingOrderId) {
+                              setCustomCreatedAt(toDateTimeLocalValue(new Date()))
                               setCustomStatus('pending')
                               setCustomPaymentStatus('unpaid')
-                              setCustomDeliveredAt(new Date().toISOString().slice(0, 16))
+                              setCustomDeliveredAt(toDateTimeLocalValue(new Date()))
                             }
                           }}
                           className="rounded text-brand focus:ring-brand h-4 w-4 cursor-pointer"

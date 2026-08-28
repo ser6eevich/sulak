@@ -12,6 +12,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { requireRole } from '@/lib/auth/dal'
 import type { BatchDeliveryOrderPreview } from '@/lib/orders/batch-delivery'
+import { resolveRetrospectiveOrderFields } from '@/lib/orders/retrospective-order'
 
 // Схемы валидации
 const orderItemSchema = z.object({
@@ -36,6 +37,7 @@ const createOrderSchema = z.object({
   comment: z.string().optional().nullable(),
   sellerId: z.string().uuid('Некорректный продавец'),
   items: z.array(orderItemSchema).min(1, 'В заказе должна быть минимум 1 позиция'),
+  isRetroactive: z.boolean().default(false),
   customCreatedAt: z.string().optional().nullable(),
   customDeliveredAt: z.string().optional().nullable(),
   status: z.string().optional().nullable(),
@@ -119,6 +121,13 @@ export async function createOrderAction(data: z.infer<typeof createOrderSchema>)
     // 1. Валидация входных данных
     const validated = createOrderSchema.parse(data)
     const normalizedPhone = normalizePhoneNumber(validated.clientPhone)
+    const retrospectiveFields = resolveRetrospectiveOrderFields({
+      enabled: validated.isRetroactive,
+      customCreatedAt: validated.customCreatedAt,
+      customDeliveredAt: validated.customDeliveredAt,
+      status: validated.status,
+      paymentStatus: validated.paymentStatus,
+    })
 
     // 2. Бесшовная CRM-регистрация/поиск клиента в транзакции
     const orderResult = await prisma.$transaction(async (tx) => {
@@ -192,19 +201,19 @@ export async function createOrderAction(data: z.infer<typeof createOrderSchema>)
       const order = await tx.order.create({
         data: {
           clientId: client.id,
-          status: validated.status || 'pending',
-          paymentStatus: validated.paymentStatus || 'unpaid',
+          status: retrospectiveFields?.status || 'pending',
+          paymentStatus: retrospectiveFields?.paymentStatus || 'unpaid',
           totalPrice,
           discount: discountCents,
           deliveryPrice: deliveryPriceCents,
           assemblyPrice: assemblyPriceCents,
-          prepayment: validated.paymentStatus === 'paid' ? grandTotalCents : 0,
+          prepayment: retrospectiveFields?.paymentStatus === 'paid' ? grandTotalCents : 0,
           deliveryAddress: validated.deliveryAddress ? normalizeAddress(validated.deliveryAddress) : null,
           comment: validated.comment,
           createdBy: currentUserId,
           sellerId: validated.sellerId,
-          createdAt: validated.customCreatedAt ? new Date(validated.customCreatedAt) : new Date(),
-          deliveredAt: validated.customDeliveredAt ? new Date(validated.customDeliveredAt) : (validated.status === 'delivered' ? new Date() : null),
+          createdAt: retrospectiveFields?.createdAt || new Date(),
+          deliveredAt: retrospectiveFields?.deliveredAt || null,
           imageUrl: validated.imageUrl,
           plannedDeliveryDate: validated.plannedDeliveryDate ? new Date(validated.plannedDeliveryDate) : null,
         },
@@ -263,6 +272,13 @@ export async function updateOrderAction(data: z.infer<typeof updateOrderSchema>)
     // 1. Валидация входных данных
     const validated = updateOrderSchema.parse(data)
     const normalizedPhone = normalizePhoneNumber(validated.clientPhone)
+    const retrospectiveFields = resolveRetrospectiveOrderFields({
+      enabled: validated.isRetroactive,
+      customCreatedAt: validated.customCreatedAt,
+      customDeliveredAt: validated.customDeliveredAt,
+      status: validated.status,
+      paymentStatus: validated.paymentStatus,
+    })
 
     const existingOrder = await prisma.order.findUnique({
       where: { id: validated.orderId },
@@ -299,6 +315,7 @@ export async function updateOrderAction(data: z.infer<typeof updateOrderSchema>)
       const deliveryPriceCents = Math.round(validated.deliveryPrice * 100)
       const assemblyPriceCents = Math.round(validated.assemblyPrice * 100)
       const grandTotalCents = totalPrice + deliveryPriceCents + assemblyPriceCents - discountCents
+      const resultingPaymentStatus = retrospectiveFields?.paymentStatus || existingOrder.paymentStatus
 
       // 4. Обновляем сам заказ
       const updatedOrder = await tx.order.update({
@@ -308,12 +325,22 @@ export async function updateOrderAction(data: z.infer<typeof updateOrderSchema>)
           discount: discountCents,
           deliveryPrice: deliveryPriceCents,
           assemblyPrice: assemblyPriceCents,
-          prepayment: existingOrder.paymentStatus === 'paid' ? grandTotalCents : existingOrder.prepayment,
+          prepayment: resultingPaymentStatus === 'paid'
+            ? grandTotalCents
+            : resultingPaymentStatus === 'unpaid'
+              ? 0
+              : existingOrder.prepayment,
           deliveryAddress: validated.deliveryAddress ? normalizeAddress(validated.deliveryAddress) : null,
           comment: validated.comment,
           sellerId: validated.sellerId,
           imageUrl: validated.imageUrl !== undefined ? validated.imageUrl : existingOrder.imageUrl,
           plannedDeliveryDate: validated.plannedDeliveryDate ? new Date(validated.plannedDeliveryDate) : null,
+          ...(retrospectiveFields ? {
+            createdAt: retrospectiveFields.createdAt,
+            deliveredAt: retrospectiveFields.deliveredAt,
+            status: retrospectiveFields.status,
+            paymentStatus: retrospectiveFields.paymentStatus,
+          } : {}),
         },
       })
 
@@ -344,8 +371,19 @@ export async function updateOrderAction(data: z.infer<typeof updateOrderSchema>)
           entityType: 'order',
           entityId: validated.orderId,
           action: 'update_order',
-          oldData: { totalPrice: existingOrder.totalPrice, discount: existingOrder.discount, sellerId: existingOrder.sellerId },
-          newData: { totalPrice, discount: discountCents, sellerId: validated.sellerId, grandTotal: grandTotalCents / 100 },
+          oldData: {
+            totalPrice: existingOrder.totalPrice,
+            discount: existingOrder.discount,
+            sellerId: existingOrder.sellerId,
+            createdAt: existingOrder.createdAt,
+          },
+          newData: {
+            totalPrice,
+            discount: discountCents,
+            sellerId: validated.sellerId,
+            grandTotal: grandTotalCents / 100,
+            ...(retrospectiveFields ? { createdAt: retrospectiveFields.createdAt } : {}),
+          },
           comment: `Отредактированы данные и состав заказа ${orderNumStr}`,
         },
       })
