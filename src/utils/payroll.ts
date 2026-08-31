@@ -130,13 +130,31 @@ export function getPeriodBoundsForDate(date: Date): { startDate: Date; endDate: 
 }
 
 /**
- * Возвращает календарные границы доставки для отчётного периода.
- * Например, ведомость 1 августа — 1 сентября включает все доставки августа,
- * в том числе выполненные 30-го и 31-го числа.
+ * Возвращает фактическое окно доставок для отчётного периода.
+ *
+ * Переходная ведомость 1 августа — 1 сентября 2026 года включает
+ * доставки с 30 июля: предыдущие выписки были сформированы 29 июля и не
+ * содержали более поздние доставки. Верхняя граница остаётся 1 сентября,
+ * поэтому все доставки 31 августа учитываются, а сентябрь не пересекается с августом.
  */
 export function getEffectiveDeliveryBounds(startInput: Date | string, endInput: Date | string): { deliveryStart: Date; deliveryEnd: Date } {
+  const start = new Date(startInput)
+  const end = new Date(endInput)
+  const moscowDateFormatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Moscow',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+
+  const isAugust2026TransitionPeriod =
+    moscowDateFormatter.format(start) === '2026-08-01' &&
+    moscowDateFormatter.format(end) === '2026-09-01'
+
   return {
-    deliveryStart: new Date(startInput),
-    deliveryEnd: new Date(endInput),
+    deliveryStart: isAugust2026TransitionPeriod
+      ? new Date('2026-07-29T21:00:00.000Z') // 30 июля, 00:00 MSK
+      : start,
+    deliveryEnd: end,
   }
 }

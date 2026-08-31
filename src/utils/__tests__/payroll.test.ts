@@ -79,9 +79,19 @@ describe('Payroll Calculations', () => {
   })
 
   describe('getEffectiveDeliveryBounds', () => {
-    it('uses the full calendar period without moving the 30th and 31st', () => {
+    it('includes the July carry-over and all August deliveries in the August 2026 payroll', () => {
       const start = new Date('2026-07-31T21:00:00.000Z')
       const end = new Date('2026-08-31T21:00:00.000Z')
+
+      expect(getEffectiveDeliveryBounds(start, end)).toEqual({
+        deliveryStart: new Date('2026-07-29T21:00:00.000Z'),
+        deliveryEnd: end,
+      })
+    })
+
+    it('does not overlap the September payroll with the August carry-over', () => {
+      const start = new Date('2026-08-31T21:00:00.000Z')
+      const end = new Date('2026-09-30T21:00:00.000Z')
 
       expect(getEffectiveDeliveryBounds(start, end)).toEqual({
         deliveryStart: start,
