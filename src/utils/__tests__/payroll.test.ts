@@ -68,6 +68,24 @@ describe('Payroll Calculations', () => {
       expect(endDate.getMonth()).toBe(5) // Июнь
       expect(endDate.getDate()).toBe(14)
     })
+
+    it('assigns all of July 14 to the historical period ending that day', () => {
+      const { startDate, endDate } = getPeriodBoundsForDate(
+        new Date('2026-07-14T20:59:59.999Z') // 14 июля, 23:59:59.999 MSK
+      )
+
+      expect(startDate.toISOString()).toBe('2026-06-13T21:00:00.000Z')
+      expect(endDate.toISOString()).toBe('2026-07-14T20:59:59.999Z')
+    })
+
+    it('starts the transition payroll at midnight on July 15 Moscow time', () => {
+      const { startDate, endDate } = getPeriodBoundsForDate(
+        new Date('2026-07-14T21:00:00.000Z') // 15 июля, 00:00 MSK
+      )
+
+      expect(startDate.toISOString()).toBe('2026-07-14T21:00:00.000Z')
+      expect(endDate.toISOString()).toBe('2026-07-31T21:00:00.000Z')
+    })
   })
 
   describe('generatePayrollPeriods', () => {

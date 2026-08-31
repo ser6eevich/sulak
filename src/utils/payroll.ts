@@ -10,8 +10,32 @@ export function getRateForOrderCount(count: number): number {
 }
 
 // Границы перехода на новую систему расчёта
-const TRANSITION_START = new Date(2026, 6, 15, 0, 0, 0, 0) // 15 июля 2026
-const TRANSITION_END   = new Date(2026, 7, 1, 0, 0, 0, 0)  // 1 августа 2026
+const TRANSITION_START = new Date('2026-07-14T21:00:00.000Z') // 15 июля 2026, 00:00 MSK
+const TRANSITION_END   = new Date('2026-07-31T21:00:00.000Z') // 1 августа 2026, 00:00 MSK
+
+const moscowDatePartsFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Europe/Moscow',
+  year: 'numeric',
+  month: 'numeric',
+  day: 'numeric',
+})
+
+function getMoscowDateParts(date: Date) {
+  const values: Record<string, number> = {}
+  for (const part of moscowDatePartsFormatter.formatToParts(date)) {
+    if (part.type !== 'literal') values[part.type] = Number(part.value)
+  }
+
+  return {
+    year: values.year,
+    month: values.month - 1,
+    day: values.day,
+  }
+}
+
+function createMoscowDate(year: number, month: number, day: number): Date {
+  return new Date(Date.UTC(year, month, day, -3, 0, 0, 0))
+}
 
 /**
  * Генерирует список отчётных периодов для выбора в интерфейсе ЗП:
@@ -96,35 +120,19 @@ export function getPeriodBoundsForDate(date: Date): { startDate: Date; endDate: 
 
   // 2. Новые регулярные периоды (с 1 августа 2026) -> с 1-го по 1-е
   if (d >= TRANSITION_END) {
-    const startDate = new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0)
-    const endDate   = new Date(d.getFullYear(), d.getMonth() + 1, 1, 0, 0, 0, 0)
+    const { year, month } = getMoscowDateParts(d)
+    const startDate = createMoscowDate(year, month, 1)
+    const endDate = createMoscowDate(year, month + 1, 1)
     return { startDate, endDate }
   }
 
-  // 3. Старые исторические периоды (до 15 июля 2026) -> с 14-го по 14-е
-  const day = d.getDate()
-  const year = d.getFullYear()
-  const month = d.getMonth()
-
-  let startYear = year
-  let startMonth = month
-  if (day < 14) {
-    startMonth = month - 1
-    if (startMonth < 0) {
-      startMonth = 11
-      startYear = year - 1
-    }
-  }
-
-  const startDate = new Date(startYear, startMonth, 14, 0, 0, 0, 0)
-
-  let endMonth = startMonth + 1
-  let endYear = startYear
-  if (endMonth > 11) {
-    endMonth = 0
-    endYear = startYear + 1
-  }
-  const endDate = new Date(endYear, endMonth, 14, 23, 59, 59, 999)
+  // 3. Старые исторические периоды (до 15 июля 2026) -> с 14-го по 14-е.
+  // Весь 14-й день относится к завершающемуся периоду, а следующий начинается 15-го.
+  const { year, month, day } = getMoscowDateParts(d)
+  const startMonth = day <= 14 ? month - 1 : month
+  const startDate = createMoscowDate(year, startMonth, 14)
+  const nextPeriodStart = createMoscowDate(year, startMonth + 1, 15)
+  const endDate = new Date(nextPeriodStart.getTime() - 1)
 
   return { startDate, endDate }
 }
