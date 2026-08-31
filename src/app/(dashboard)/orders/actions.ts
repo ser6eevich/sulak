@@ -93,6 +93,7 @@ export async function findOrdersForBatchDeliveryAction(orderNumbers: string[]) {
         deliveryPrice: true,
         assemblyPrice: true,
         client: { select: { fullName: true } },
+        seller: { select: { fullName: true } },
       },
     })
 

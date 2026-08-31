@@ -19,14 +19,14 @@ const TRANSITION_END   = new Date(2026, 7, 1, 0, 0, 0, 0)  // 1 августа 2
  * 2. Переходный период: 15 июля 2026 — 1 августа 2026
  * 3. Исторические периоды (с 14-го по 14-е): 14 июня — 14 июля, 14 мая — 14 июня и т.д.
  */
-export function generatePayrollPeriods(): { label: string; startDate: string; endDate: string }[] {
+export function generatePayrollPeriods(nowInput: Date | string = new Date()): { label: string; startDate: string; endDate: string }[] {
   const monthNames = [
     'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
     'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
   ]
 
   const periods: { label: string; startDate: string; endDate: string }[] = []
-  const now = new Date()
+  const now = new Date(nowInput)
 
   const makeLabel = (start: Date, end: Date) => {
     return `${start.getDate()} ${monthNames[start.getMonth()]} ${start.getFullYear()} — ${end.getDate()} ${monthNames[end.getMonth()]} ${end.getFullYear()}`
@@ -36,6 +36,12 @@ export function generatePayrollPeriods(): { label: string; startDate: string; en
   if (now >= TRANSITION_END) {
     const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0)
     const cursor = new Date(currentMonthStart)
+
+    // Доставки 30-го и 31-го относятся к следующей ведомости. Показываем её
+    // заранее, чтобы начисления не исчезали из интерфейса до наступления 1-го числа.
+    if (now.getDate() >= 30) {
+      cursor.setMonth(cursor.getMonth() + 1)
+    }
 
     while (cursor >= TRANSITION_END) {
       const end = new Date(cursor)

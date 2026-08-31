@@ -9,6 +9,9 @@ export interface BatchDeliveryOrderPreview {
   client: {
     fullName: string
   }
+  seller: {
+    fullName: string
+  } | null
 }
 
 export function extractBatchOrderNumbers(input: string): string[] {

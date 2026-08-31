@@ -369,7 +369,10 @@ export default function OrderManagement({
     setBatchSuccessMsg('')
 
     const idsToUpdate = targetOrders.map(o => o.id)
-    const res = await batchUpdateOrdersDeliveredAction(idsToUpdate, batchDeliveredAt || null)
+    const deliveredAtIso = batchDeliveredAt
+      ? new Date(batchDeliveredAt).toISOString()
+      : null
+    const res = await batchUpdateOrdersDeliveredAction(idsToUpdate, deliveredAtIso)
     setBatchLoading(false)
 
     if (res.error) {
@@ -2917,7 +2920,7 @@ export default function OrderManagement({
             if (e.target === e.currentTarget) setBatchModalOpen(false)
           }}
         >
-          <div className="relative w-full max-w-2xl bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl shadow-xl overflow-hidden flex flex-col max-h-[85vh]">
+          <div className="relative w-full max-w-4xl bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-xl shadow-xl overflow-hidden flex flex-col max-h-[85vh]">
             {/* Заголовок */}
             <div className="flex h-13 items-center justify-between border-b border-[var(--border-primary)] bg-[var(--bg-table-header)] px-5">
               <div className="flex items-center gap-2.5">
@@ -3038,6 +3041,7 @@ export default function OrderManagement({
                                 <th className="p-2.5 pl-3 w-8 text-center">✓</th>
                                 <th className="p-2.5">Заказ</th>
                                 <th className="p-2.5">Клиент</th>
+                                <th className="p-2.5">Менеджер</th>
                                 <th className="p-2.5">Текущий статус</th>
                                 <th className="p-2.5 pr-3 text-right">Сумма</th>
                               </tr>
@@ -3075,6 +3079,9 @@ export default function OrderManagement({
                                     </td>
                                     <td className="p-2.5 font-medium">
                                       {o.client.fullName}
+                                    </td>
+                                    <td className="p-2.5 font-medium whitespace-nowrap">
+                                      {o.seller?.fullName || 'Не назначен'}
                                     </td>
                                     <td className="p-2.5">
                                       <span 

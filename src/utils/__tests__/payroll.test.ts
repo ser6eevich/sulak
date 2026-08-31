@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getRateForOrderCount, getPeriodBoundsForDate } from '../payroll'
+import { generatePayrollPeriods, getRateForOrderCount, getPeriodBoundsForDate } from '../payroll'
 
 describe('Payroll Calculations', () => {
   describe('getRateForOrderCount', () => {
@@ -62,6 +62,21 @@ describe('Payroll Calculations', () => {
       expect(endDate.getFullYear()).toBe(2026)
       expect(endDate.getMonth()).toBe(5) // Июнь
       expect(endDate.getDate()).toBe(14)
+    })
+  })
+
+  describe('generatePayrollPeriods', () => {
+    it('shows the next payroll period from the 30th day of the month', () => {
+      const periods = generatePayrollPeriods(new Date(2026, 7, 31, 12, 0, 0))
+
+      expect(periods[0].label).toBe('1 сентября 2026 — 1 октября 2026')
+      expect(periods[1].label).toBe('1 августа 2026 — 1 сентября 2026')
+    })
+
+    it('keeps the current period first before the cutoff', () => {
+      const periods = generatePayrollPeriods(new Date(2026, 7, 29, 12, 0, 0))
+
+      expect(periods[0].label).toBe('1 августа 2026 — 1 сентября 2026')
     })
   })
 })
