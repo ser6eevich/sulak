@@ -37,12 +37,6 @@ export function generatePayrollPeriods(nowInput: Date | string = new Date()): { 
     const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0)
     const cursor = new Date(currentMonthStart)
 
-    // Доставки 30-го и 31-го относятся к следующей ведомости. Показываем её
-    // заранее, чтобы начисления не исчезали из интерфейса до наступления 1-го числа.
-    if (now.getDate() >= 30) {
-      cursor.setMonth(cursor.getMonth() + 1)
-    }
-
     while (cursor >= TRANSITION_END) {
       const end = new Date(cursor)
       end.setMonth(end.getMonth() + 1)
@@ -136,50 +130,13 @@ export function getPeriodBoundsForDate(date: Date): { startDate: Date; endDate: 
 }
 
 /**
- * Рассчитывает границы времени доставки для отчётного периода.
- * Зарплата рассчитывается примерно 30-го числа каждого месяца, 
- * поэтому заказы, доставленные 30-го или 31-го числа, автоматически переходят 
- * в окно расчёта следующего месяца (в период с 1-го по 1-е как надбавка).
+ * Возвращает календарные границы доставки для отчётного периода.
+ * Например, ведомость 1 августа — 1 сентября включает все доставки августа,
+ * в том числе выполненные 30-го и 31-го числа.
  */
 export function getEffectiveDeliveryBounds(startInput: Date | string, endInput: Date | string): { deliveryStart: Date; deliveryEnd: Date } {
-  const s = new Date(startInput)
-  const e = new Date(endInput)
-
-  const getMSKParts = (d: Date) => {
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'Europe/Moscow',
-      year: 'numeric', month: 'numeric', day: 'numeric',
-      hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false
-    })
-    const parts = formatter.formatToParts(d)
-    const map: Record<string, number> = {}
-    for (const p of parts) {
-      if (p.type !== 'literal') map[p.type] = parseInt(p.value, 10)
-    }
-    return { year: map.year, month: map.month - 1, day: map.day, hour: map.hour }
+  return {
+    deliveryStart: new Date(startInput),
+    deliveryEnd: new Date(endInput),
   }
-
-  const sParts = getMSKParts(s)
-  const eParts = getMSKParts(e)
-
-  let deliveryStart: Date
-  let deliveryEnd: Date
-
-  // Если дата начала периода — 1-е число месяца (например 1 августа):
-  // доставка начинается 30-го числа предыдущего месяца в 00:00:00 MSK
-  if (sParts.day === 1) {
-    deliveryStart = new Date(Date.UTC(sParts.year, sParts.month - 1, 30, -3, 0, 0, 0))
-  } else {
-    deliveryStart = s
-  }
-
-  // Если дата окончания периода — 1-е число месяца (например 1 августа или 1 сентября)
-  // или совпадает с 31 июля из-за сдвига часового пояса в ISO строках:
-  if (eParts.day === 1 || (eParts.day === 31 && eParts.month === 6)) {
-    deliveryEnd = new Date(Date.UTC(eParts.year, eParts.month - 1, 30, -3, 0, 0, 0))
-  } else {
-    deliveryEnd = e
-  }
-
-  return { deliveryStart, deliveryEnd }
 }

@@ -31,7 +31,7 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
     const start = new Date(startDateStr)
     const end = new Date(endDateStr)
 
-    // Границы фактического времени доставки (отсечка 30-го числа месяца: 30-е и 31-е числа уходят в след. месяц)
+    // Календарные границы доставки: период 1 августа — 1 сентября включает весь август.
     const { deliveryStart, deliveryEnd } = getEffectiveDeliveryBounds(start, end)
 
     // Загружаем всех сотрудников с ролью менеджер
@@ -105,7 +105,7 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
       })
       const cancelledCount = new Set(cancelledItems.map(it => `${it.orderId}-${it.subOrderIndex}`)).size
 
-      // 2. Доставленные подзаказы, которые были созданы в отчетном периоде И доставлены в окно этого периода (до 30-го числа)
+      // 2. Доставленные подзаказы, которые были созданы и доставлены в отчётном периоде.
       const currentDeliveredItems = await prisma.orderItem.findMany({
         where: {
           order: {
@@ -136,7 +136,7 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
       const currentDeliveredCount = currentDeliveredMap.size
       const currentDeliveriesSum = currentDeliveredCount * currentRate
 
-      // 3. Подзаказы из ПРЕДЫДУЩИХ периодов, которые были доставлены в окно этого периода (включая 30-31 прошлого месяца) -> (Надбавка)
+      // 3. Подзаказы из предыдущих периодов, доставленные в текущем календарном периоде (надбавка).
       const pastDeliveredItems = await prisma.orderItem.findMany({
         where: {
           order: {
