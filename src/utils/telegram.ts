@@ -51,6 +51,144 @@ export async function getTelegramSettings() {
 
 export type OrderNotificationType = 'new_order' | 'updated' | 'delivering' | 'delivered' | 'cancelled'
 
+type TelegramOrderMessageKind = 'text' | 'photo' | 'media_group'
+
+type TelegramOrderMessageReference = {
+  chatId: string
+  messageId: number
+  kind: TelegramOrderMessageKind
+}
+
+type TelegramMessage = {
+  message_id: number
+}
+
+type TelegramApiResponse<T> = {
+  ok: boolean
+  result?: T
+  description?: string
+}
+
+const ORDER_TELEGRAM_MESSAGE_KEY_PREFIX = 'order_telegram_message_'
+
+function orderTelegramMessageKey(orderId: string) {
+  return `${ORDER_TELEGRAM_MESSAGE_KEY_PREFIX}${orderId}`
+}
+
+function isTelegramOrderMessageReference(value: unknown): value is TelegramOrderMessageReference {
+  if (!value || typeof value !== 'object') return false
+
+  const reference = value as Partial<TelegramOrderMessageReference>
+  return typeof reference.chatId === 'string'
+    && Number.isInteger(reference.messageId)
+    && (reference.kind === 'text' || reference.kind === 'photo' || reference.kind === 'media_group')
+}
+
+async function getOrderTelegramMessageReference(orderId: string) {
+  const setting = await prisma.systemSetting.findUnique({
+    where: { key: orderTelegramMessageKey(orderId) },
+    select: { value: true },
+  })
+
+  if (!setting) return null
+
+  try {
+    const parsed: unknown = JSON.parse(setting.value)
+    return isTelegramOrderMessageReference(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+async function saveOrderTelegramMessageReference(
+  orderId: string,
+  reference: TelegramOrderMessageReference
+) {
+  await prisma.systemSetting.upsert({
+    where: { key: orderTelegramMessageKey(orderId) },
+    update: { value: JSON.stringify(reference) },
+    create: { key: orderTelegramMessageKey(orderId), value: JSON.stringify(reference) },
+  })
+}
+
+async function readTelegramResponse<T>(response: Response): Promise<TelegramApiResponse<T>> {
+  try {
+    return await response.json() as TelegramApiResponse<T>
+  } catch {
+    return { ok: response.ok }
+  }
+}
+
+async function sendTelegramTextMessage({
+  token,
+  chatId,
+  text,
+  replyToMessageId,
+}: {
+  token: string
+  chatId: string
+  text: string
+  replyToMessageId?: number
+}) {
+  const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      parse_mode: 'HTML',
+      ...(replyToMessageId
+        ? {
+            reply_parameters: {
+              message_id: replyToMessageId,
+              allow_sending_without_reply: true,
+            },
+          }
+        : {}),
+    }),
+  })
+  const body = await readTelegramResponse<TelegramMessage>(response)
+
+  if (!response.ok || !body.ok || !body.result) {
+    console.warn('Telegram sendMessage не прошёл:', body.description || response.statusText)
+    return null
+  }
+
+  return body.result
+}
+
+async function editOrderTelegramMessage({
+  token,
+  reference,
+  text,
+}: {
+  token: string
+  reference: TelegramOrderMessageReference
+  text: string
+}) {
+  const editsText = reference.kind === 'text'
+  const method = editsText ? 'editMessageText' : 'editMessageCaption'
+  const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: reference.chatId,
+      message_id: reference.messageId,
+      parse_mode: 'HTML',
+      ...(editsText ? { text } : { caption: text }),
+    }),
+  })
+  const body = await readTelegramResponse<TelegramMessage | true>(response)
+
+  if (response.ok && body.ok) return true
+
+  // Повторное сохранение без фактических изменений тоже считается успешной синхронизацией.
+  if (body.description?.toLowerCase().includes('message is not modified')) return true
+
+  console.warn(`Telegram ${method} не прошёл:`, body.description || response.statusText)
+  return false
+}
+
 /**
  * Вспомогательная функция очистки ширины стола (например, 240/280x100 -> 240/280)
  */
@@ -267,6 +405,50 @@ export async function sendOrderTelegramNotification(
     textMessage += `\n${footerTag}`
     textMessage += `\n👉 <a href="${orderLink}"><b>Перейти к заказу ${orderNumStr}</b></a>`
 
+    if (type === 'updated') {
+      const existingReference = await getOrderTelegramMessageReference(orderId)
+
+      if (existingReference?.chatId === chatId) {
+        const edited = await editOrderTelegramMessage({
+          token,
+          reference: existingReference,
+          text: textMessage,
+        })
+
+        if (edited) return
+
+        // Если Telegram больше не разрешает редактировать карточку, отвечаем на неё
+        // и делаем новое сообщение основной карточкой для следующих изменений.
+        const reply = await sendTelegramTextMessage({
+          token,
+          chatId,
+          text: textMessage,
+          replyToMessageId: existingReference.messageId,
+        })
+
+        if (reply) {
+          await saveOrderTelegramMessageReference(orderId, {
+            chatId,
+            messageId: reply.message_id,
+            kind: 'text',
+          })
+        }
+        return
+      }
+
+      // Для заказов, созданных до появления привязки, один раз публикуем
+      // актуальную карточку. Дальше она будет обновляться на месте.
+      const replacement = await sendTelegramTextMessage({ token, chatId, text: textMessage })
+      if (replacement) {
+        await saveOrderTelegramMessageReference(orderId, {
+          chatId,
+          messageId: replacement.message_id,
+          kind: 'text',
+        })
+      }
+      return
+    }
+
     // Извлекаем все фото из заказа только для новых заказов (#новый_заказ)
     let photoUrls: string[] = []
     if (type === 'new_order' && order.imageUrl) {
@@ -288,6 +470,7 @@ export async function sendOrderTelegramNotification(
     }
 
     let sentWithPhoto = false
+    let sentMessageReference: TelegramOrderMessageReference | null = null
 
     if (photoUrls.length === 1) {
       // Одно фото — отправляем sendPhoto
@@ -304,11 +487,21 @@ export async function sendOrderTelegramNotification(
           }),
         })
 
-        if (photoRes.ok) {
+        const photoBody = await readTelegramResponse<TelegramMessage>(photoRes)
+        if (photoRes.ok && photoBody.ok) {
           sentWithPhoto = true
+          if (photoBody.result) {
+            sentMessageReference = {
+              chatId,
+              messageId: photoBody.result.message_id,
+              kind: 'photo',
+            }
+          }
         } else {
-          const errText = await photoRes.text()
-          console.warn('Telegram sendPhoto не прошёл, отправляем sendMessage. Причина:', errText)
+          console.warn(
+            'Telegram sendPhoto не прошёл, отправляем sendMessage. Причина:',
+            photoBody.description || photoRes.statusText
+          )
         }
       } catch (photoErr) {
         console.warn('Ошибка при отправке sendPhoto в Telegram:', photoErr)
@@ -332,11 +525,22 @@ export async function sendOrderTelegramNotification(
           }),
         })
 
-        if (mediaRes.ok) {
+        const mediaBody = await readTelegramResponse<TelegramMessage[]>(mediaRes)
+        if (mediaRes.ok && mediaBody.ok) {
           sentWithPhoto = true
+          const firstMessage = mediaBody.result?.[0]
+          if (firstMessage) {
+            sentMessageReference = {
+              chatId,
+              messageId: firstMessage.message_id,
+              kind: 'media_group',
+            }
+          }
         } else {
-          const errText = await mediaRes.text()
-          console.warn('Telegram sendMediaGroup не прошёл, отправляем sendMessage. Причина:', errText)
+          console.warn(
+            'Telegram sendMediaGroup не прошёл, отправляем sendMessage. Причина:',
+            mediaBody.description || mediaRes.statusText
+          )
         }
       } catch (mediaErr) {
         console.warn('Ошибка при отправке sendMediaGroup в Telegram:', mediaErr)
@@ -345,16 +549,18 @@ export async function sendOrderTelegramNotification(
 
     // Если фото нет или отправка фото не удалась — отправляем обычное текстовое сообщение
     if (!sentWithPhoto) {
-      const textEndpoint = `https://api.telegram.org/bot${token}/sendMessage`
-      await fetch(textEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: textMessage,
-          parse_mode: 'HTML',
-        }),
-      })
+      const sentMessage = await sendTelegramTextMessage({ token, chatId, text: textMessage })
+      if (sentMessage) {
+        sentMessageReference = {
+          chatId,
+          messageId: sentMessage.message_id,
+          kind: 'text',
+        }
+      }
+    }
+
+    if (type === 'new_order' && sentMessageReference) {
+      await saveOrderTelegramMessageReference(orderId, sentMessageReference)
     }
   } catch (error) {
     console.error(`Ошибка отправки Telegram уведомления (${type}):`, error)
