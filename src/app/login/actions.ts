@@ -5,7 +5,7 @@ import { setSessionCookie, deleteSessionCookie } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import bcrypt from 'bcryptjs'
 import { getCurrentProfile } from '@/lib/auth/dal'
-import { validatePassword } from '@/lib/auth/password'
+import { DEFAULT_TEMPORARY_PASSWORD, validatePassword } from '@/lib/auth/password'
 import {
   assertLoginAllowed,
   clearLoginFailures,
@@ -49,7 +49,7 @@ export async function loginAction(prevState: { error: string } | null, formData:
   await clearLoginFailures(loginInput)
 
   const userPerms = (profile.permissions as Record<string, boolean>) || {}
-  if (password === '123456') {
+  if (password === DEFAULT_TEMPORARY_PASSWORD) {
     userPerms.mustChangePassword = true
   }
 

@@ -10,6 +10,7 @@ import PresencePing from '@/components/PresencePing'
 import MustChangePasswordModal from '@/components/MustChangePasswordModal'
 import { getRoleLabel } from '@/utils/roles'
 import { ChevronDown } from 'lucide-react'
+import { DEFAULT_TEMPORARY_PASSWORD } from '@/lib/auth/password'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,7 +47,7 @@ export default async function DashboardLayout({
   }
 
   const isDefaultPassword = profileRecord.passwordHash
-    ? await bcrypt.compare('123456', profileRecord.passwordHash)
+    ? await bcrypt.compare(DEFAULT_TEMPORARY_PASSWORD, profileRecord.passwordHash)
     : false
 
   const mustChangePassword = isDefaultPassword || (

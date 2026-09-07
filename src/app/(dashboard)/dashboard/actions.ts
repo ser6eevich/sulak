@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { randomUUID } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { APP_ROLES, requireRole, type AppRole } from '@/lib/auth/dal'
-import { validatePassword } from '@/lib/auth/password'
+import { validateAdministrativePassword } from '@/lib/auth/password'
 import {
   defaultPermissionsForRole,
   sanitizePermissions,
@@ -37,8 +37,10 @@ export async function createUserAction(formData: {
     const admin = await checkAdminOrOwner()
 
     const { email, fullName, role, passwordStr } = formData
+    const normalizedFullName = fullName.trim()
+    const normalizedEmailInput = email.trim().toLowerCase()
 
-    if (!email || !fullName || !role || !passwordStr) {
+    if (!normalizedEmailInput || !normalizedFullName || !role || !passwordStr) {
       return { error: 'Все поля обязательны для заполнения' }
     }
 
@@ -47,10 +49,10 @@ export async function createUserAction(formData: {
     if (parsedRole === 'owner' && admin.role !== 'owner') {
       return { error: 'Только владелец может назначать роль владельца' }
     }
-    const passwordError = validatePassword(passwordStr)
+    const passwordError = validateAdministrativePassword(passwordStr)
     if (passwordError) return { error: passwordError }
 
-    let finalEmail = email.trim().toLowerCase()
+    let finalEmail = normalizedEmailInput
     if (!finalEmail.includes('@')) {
       finalEmail = `${finalEmail}@sulak.ru`
     }
@@ -60,30 +62,39 @@ export async function createUserAction(formData: {
     const defaultPermissions = defaultPermissionsForRole(parsedRole)
     const passwordHash = await bcrypt.hash(passwordStr, 12)
 
-    const profile = await prisma.profile.create({
-      data: {
-        id: userId,
-        email: finalEmail,
-        fullName: fullName.trim(),
-        role: parsedRole,
-        isActive: true,
-        passwordHash,
-        permissions: defaultPermissions
-      }
+    const existingProfile = await prisma.profile.findUnique({
+      where: { email: finalEmail },
     })
+    if (existingProfile) return { error: 'Пользователь с таким логином уже существует' }
 
-    // Записываем лог в аудит
-    await prisma.auditLog.create({
-      data: {
-        userId: admin.id,
-        entityType: 'profile',
-        entityId: userId,
-        action: 'create',
-        comment: `Создан пользователь ${fullName} с ролью ${role}`
-      }
+    const profile = await prisma.$transaction(async (tx) => {
+      const createdProfile = await tx.profile.create({
+        data: {
+          id: userId,
+          email: finalEmail,
+          fullName: normalizedFullName,
+          role: parsedRole,
+          isActive: true,
+          passwordHash,
+          permissions: { ...defaultPermissions, mustChangePassword: true },
+        },
+      })
+
+      await tx.auditLog.create({
+        data: {
+          userId: admin.id,
+          entityType: 'profile',
+          entityId: userId,
+          action: 'create',
+          comment: `Создан пользователь ${normalizedFullName} с ролью ${parsedRole}`,
+        },
+      })
+
+      return createdProfile
     })
 
     revalidatePath('/dashboard')
+    revalidatePath('/settings')
     return {
       success: true,
       profile: {
@@ -94,7 +105,11 @@ export async function createUserAction(formData: {
       },
     }
   } catch (error: unknown) {
-    return { error: error instanceof Error ? error.message : 'Ошибка сервера при создании пользователя' }
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+      return { error: 'Пользователь с таким логином уже существует' }
+    }
+    console.error('Ошибка создания пользователя:', error)
+    return { error: 'Не удалось создать пользователя. Повторите попытку' }
   }
 }
 
@@ -271,7 +286,7 @@ export async function resetUserPasswordAction(userId: string, newPasswordStr: st
   try {
     const admin = await checkAdminOrOwner()
 
-    const passwordError = validatePassword(newPasswordStr)
+    const passwordError = validateAdministrativePassword(newPasswordStr)
     if (passwordError) return { error: passwordError }
 
     const targetUser = await prisma.profile.findUnique({ where: { id: userId } })

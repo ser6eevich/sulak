@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { randomUUID } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { requireRole } from '@/lib/auth/dal'
-import { validatePassword } from '@/lib/auth/password'
+import { validateAdministrativePassword } from '@/lib/auth/password'
 import { defaultPermissionsForRole } from '@/lib/auth/permissions'
 
 async function checkAdminOrOwner() {
@@ -31,7 +31,7 @@ export async function createManagerAction(
       cleanTag = `@${cleanTag}`
     }
 
-    const passwordError = validatePassword(password)
+    const passwordError = validateAdministrativePassword(password)
     if (passwordError) return { error: passwordError }
 
     const uuid = randomUUID()
@@ -49,7 +49,7 @@ export async function createManagerAction(
         isActive: true,
         telegramUsername: cleanTag,
         passwordHash,
-        permissions: defaultPermissionsForRole('manager'),
+        permissions: { ...defaultPermissionsForRole('manager'), mustChangePassword: true },
       },
     })
 

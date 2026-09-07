@@ -49,7 +49,7 @@ export async function getTelegramSettings() {
   return { chatId, token, ownerTag, warehouseTag, siteUrl, topics, thresholds, notifyFlags }
 }
 
-export type OrderNotificationType = 'new_order' | 'delivering' | 'delivered' | 'cancelled'
+export type OrderNotificationType = 'new_order' | 'updated' | 'delivering' | 'delivered' | 'cancelled'
 
 /**
  * Вспомогательная функция очистки ширины стола (например, 240/280x100 -> 240/280)
@@ -134,6 +134,9 @@ export async function sendOrderTelegramNotification(
     if (type === 'new_order') {
       footerTag = '#новый_заказ'
       title = `<b>Заказ ${orderNumStr}</b>`
+    } else if (type === 'updated') {
+      footerTag = '#заказ_изменен'
+      title = `✏️ <b>Заказ ${orderNumStr} изменён</b>`
     } else if (type === 'delivering') {
       footerTag = '#доставляется'
       title = `🚚 <b>Заказ ${orderNumStr} передан в доставку</b>`

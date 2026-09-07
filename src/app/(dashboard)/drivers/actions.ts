@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { sendOrderDeliveredTelegramNotification } from '@/utils/telegram'
 import { requireRole } from '@/lib/auth/dal'
-import { validatePassword } from '@/lib/auth/password'
+import { validateAdministrativePassword } from '@/lib/auth/password'
 import { defaultPermissionsForRole } from '@/lib/auth/permissions'
 
 async function checkLogisticianOrAbove() {
@@ -31,7 +31,7 @@ export async function createDriverAction(
       return { error: 'ФИО и телефон обязательны' }
     }
 
-    const passwordError = validatePassword(password)
+    const passwordError = validateAdministrativePassword(password)
     if (passwordError) return { error: passwordError }
 
     const uuid = randomUUID()
@@ -47,7 +47,7 @@ export async function createDriverAction(
         role: 'driver',
         direction: direction?.trim() || null,
         passwordHash,
-        permissions: defaultPermissionsForRole('driver'),
+        permissions: { ...defaultPermissionsForRole('driver'), mustChangePassword: true },
         isActive: true,
       },
     })

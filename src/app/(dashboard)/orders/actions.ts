@@ -396,6 +396,8 @@ export async function updateOrderAction(data: z.infer<typeof updateOrderSchema>)
     revalidatePath('/payroll')
     revalidatePath('/dashboard')
 
+    await sendOrderTelegramNotification(orderResult.id, 'updated')
+
     return { success: true, orderId: orderResult.id }
   } catch (error: unknown) {
     if (error instanceof z.ZodError) {
