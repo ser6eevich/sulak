@@ -42,6 +42,7 @@ function orderFixture(imageUrl: string | null = null) {
     client: {
       fullName: 'Каспар',
       primaryPhone: '+79066455610',
+      additionalPhone: '+79061234567',
     },
     seller: {
       fullName: 'Анастасия Гофман',
@@ -96,6 +97,8 @@ describe('Telegram order message synchronization', () => {
     const caption = JSON.parse(fetchMock.mock.calls[0][1].body).caption
     expect(caption).toContain('<b>Заказ №515</b>')
     expect(caption).toContain('Комментарий:</b> Позвонить заранее')
+    expect(caption).toContain('<code>+79066455610</code>')
+    expect(caption).toContain('Доп. телефон: <code>+79061234567</code>')
     expect(caption).toContain('#новый_заказ')
     expect(caption).not.toContain('#заказ_изменен')
     expect(prismaMock.systemSetting.upsert).not.toHaveBeenCalled()

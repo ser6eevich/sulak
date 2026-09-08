@@ -379,6 +379,10 @@ export async function sendOrderTelegramNotification(
     if (order.client?.primaryPhone) {
       textMessage += `• <code>${order.client.primaryPhone}</code>\n`
     }
+    const additionalPhone = order.client?.additionalPhone?.trim()
+    if (additionalPhone && additionalPhone !== order.client?.primaryPhone) {
+      textMessage += `• Доп. телефон: <code>${additionalPhone}</code>\n`
+    }
     if (itemsFormatted) {
       textMessage += `• ${itemsFormatted}\n`
     }
