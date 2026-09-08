@@ -252,10 +252,9 @@ export async function createOrderAction(data: z.infer<typeof createOrderSchema>)
 
     revalidatePath('/orders')
     
-    // Отправляем уведомление в Telegram в фоновом режиме
-    sendOrderTelegramNotification(orderResult.id, 'new_order').catch((err) => {
-      console.error('Ошибка отправки уведомления в Telegram:', err)
-    })
+    // Дожидаемся отправки, чтобы ID исходной Telegram-карточки был сохранён
+    // до того, как пользователь сможет открыть заказ на редактирование.
+    await sendOrderTelegramNotification(orderResult.id, 'new_order')
 
     return { success: true, orderId: orderResult.id }
   } catch (error: unknown) {

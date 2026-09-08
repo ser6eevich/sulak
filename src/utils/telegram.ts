@@ -123,12 +123,10 @@ async function sendTelegramTextMessage({
   token,
   chatId,
   text,
-  replyToMessageId,
 }: {
   token: string
   chatId: string
   text: string
-  replyToMessageId?: number
 }) {
   const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
@@ -137,14 +135,6 @@ async function sendTelegramTextMessage({
       chat_id: chatId,
       text,
       parse_mode: 'HTML',
-      ...(replyToMessageId
-        ? {
-            reply_parameters: {
-              message_id: replyToMessageId,
-              allow_sending_without_reply: true,
-            },
-          }
-        : {}),
     }),
   })
   const body = await readTelegramResponse<TelegramMessage>(response)
@@ -168,24 +158,44 @@ async function editOrderTelegramMessage({
 }) {
   const editsText = reference.kind === 'text'
   const method = editsText ? 'editMessageText' : 'editMessageCaption'
-  const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: reference.chatId,
-      message_id: reference.messageId,
-      parse_mode: 'HTML',
-      ...(editsText ? { text } : { caption: text }),
-    }),
+  const endpoint = `https://api.telegram.org/bot${token}/${method}`
+  const requestBody = JSON.stringify({
+    chat_id: reference.chatId,
+    message_id: reference.messageId,
+    parse_mode: 'HTML',
+    ...(editsText ? { text } : { caption: text }),
   })
-  const body = await readTelegramResponse<TelegramMessage | true>(response)
 
-  if (response.ok && body.ok) return true
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody,
+        signal: AbortSignal.timeout(10_000),
+      })
+      const body = await readTelegramResponse<TelegramMessage | true>(response)
 
-  // Повторное сохранение без фактических изменений тоже считается успешной синхронизацией.
-  if (body.description?.toLowerCase().includes('message is not modified')) return true
+      if (response.ok && body.ok) return true
 
-  console.warn(`Telegram ${method} не прошёл:`, body.description || response.statusText)
+      // Повторное сохранение без фактических изменений тоже считается успешной синхронизацией.
+      if (body.description?.toLowerCase().includes('message is not modified')) return true
+
+      const retryable = response.status === 429 || response.status >= 500
+      if (!retryable || attempt === 3) {
+        console.warn(`Telegram ${method} не прошёл:`, body.description || response.statusText)
+        return false
+      }
+    } catch (error) {
+      if (attempt === 3) {
+        console.warn(`Telegram ${method} не прошёл после 3 попыток:`, error)
+        return false
+      }
+    }
+
+    await new Promise(resolve => setTimeout(resolve, attempt * 300))
+  }
+
   return false
 }
 
@@ -269,12 +279,9 @@ export async function sendOrderTelegramNotification(
     let footerTag = ''
     let title = ''
 
-    if (type === 'new_order') {
+    if (type === 'new_order' || type === 'updated') {
       footerTag = '#новый_заказ'
       title = `<b>Заказ ${orderNumStr}</b>`
-    } else if (type === 'updated') {
-      footerTag = '#заказ_изменен'
-      title = `✏️ <b>Заказ ${orderNumStr} изменён</b>`
     } else if (type === 'delivering') {
       footerTag = '#доставляется'
       title = `🚚 <b>Заказ ${orderNumStr} передан в доставку</b>`
@@ -415,23 +422,8 @@ export async function sendOrderTelegramNotification(
           text: textMessage,
         })
 
-        if (edited) return
-
-        // Если Telegram больше не разрешает редактировать карточку, отвечаем на неё
-        // и делаем новое сообщение основной карточкой для следующих изменений.
-        const reply = await sendTelegramTextMessage({
-          token,
-          chatId,
-          text: textMessage,
-          replyToMessageId: existingReference.messageId,
-        })
-
-        if (reply) {
-          await saveOrderTelegramMessageReference(orderId, {
-            chatId,
-            messageId: reply.message_id,
-            kind: 'text',
-          })
+        if (!edited) {
+          console.error(`Карточка заказа ${orderNumStr} в Telegram не обновлена`)
         }
         return
       }

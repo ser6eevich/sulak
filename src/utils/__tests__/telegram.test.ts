@@ -36,7 +36,7 @@ function orderFixture(imageUrl: string | null = null) {
     deliveryPrice: 0,
     assemblyPrice: 0,
     deliveryAddress: 'Калужская область, село Барятино',
-    comment: null,
+    comment: 'Позвонить заранее',
     createdAt: new Date('2026-09-07T14:30:00.000Z'),
     imageUrl,
     client: {
@@ -93,36 +93,47 @@ describe('Telegram order message synchronization', () => {
       chat_id: '-1001234567890',
       message_id: 42,
     })
+    const caption = JSON.parse(fetchMock.mock.calls[0][1].body).caption
+    expect(caption).toContain('<b>Заказ №515</b>')
+    expect(caption).toContain('Комментарий:</b> Позвонить заранее')
+    expect(caption).toContain('#новый_заказ')
+    expect(caption).not.toContain('#заказ_изменен')
     expect(prismaMock.systemSetting.upsert).not.toHaveBeenCalled()
   })
 
-  it('replies to the linked message when Telegram cannot edit it', async () => {
+  it('retries a transient network failure and edits the same message', async () => {
     prismaMock.systemSetting.findUnique.mockResolvedValue({
       value: JSON.stringify({ chatId: '-1001234567890', messageId: 42, kind: 'text' }),
     })
     const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
       .mockResolvedValueOnce(
-        telegramResponse({ ok: false, description: 'Bad Request: message to edit not found' }, 400)
-      )
-      .mockResolvedValueOnce(
-        telegramResponse({ ok: true, result: { message_id: 84 } })
+        telegramResponse({ ok: true, result: { message_id: 42 } })
       )
     vi.stubGlobal('fetch', fetchMock)
 
     await sendOrderTelegramNotification(orderId, 'updated')
 
+    expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(fetchMock.mock.calls[0][0]).toContain('/editMessageText')
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({
-      reply_parameters: {
-        message_id: 42,
-        allow_sending_without_reply: true,
-      },
+    expect(fetchMock.mock.calls[1][0]).toContain('/editMessageText')
+    expect(prismaMock.systemSetting.upsert).not.toHaveBeenCalled()
+  })
+
+  it('does not send a supplemental message after a permanent edit error', async () => {
+    prismaMock.systemSetting.findUnique.mockResolvedValue({
+      value: JSON.stringify({ chatId: '-1001234567890', messageId: 42, kind: 'text' }),
     })
-    expect(prismaMock.systemSetting.upsert).toHaveBeenCalledWith(expect.objectContaining({
-      update: {
-        value: JSON.stringify({ chatId: '-1001234567890', messageId: 84, kind: 'text' }),
-      },
-    }))
+    const fetchMock = vi.fn().mockResolvedValue(
+      telegramResponse({ ok: false, description: 'Bad Request: message to edit not found' }, 400)
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await sendOrderTelegramNotification(orderId, 'updated')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toContain('/editMessageText')
+    expect(prismaMock.systemSetting.upsert).not.toHaveBeenCalled()
   })
 
   it('creates and links a canonical message for a legacy order', async () => {
