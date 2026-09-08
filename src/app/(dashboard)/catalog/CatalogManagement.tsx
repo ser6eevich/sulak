@@ -548,7 +548,7 @@ export default function CatalogManagement({
   }
 
   // Открыть модалку редактирования
-  const openEditModal = (product: ProductWithVariants) => {
+  const openEditModal = (product: ProductWithVariants, addEmptyVariant = false) => {
     setEditProduct(product)
     setFormName(product.name)
     setFormCategoryId(product.categoryId)
@@ -574,6 +574,16 @@ export default function CatalogManagement({
       isCustomSku: true,
       attributes: v.attributes || null
     }))
+    if (addEmptyVariant) {
+      const newRow = createNewVariantRow(product.category.slug)
+      const color = product.category.slug === 'sofas' ? '' : newRow.color
+      const pattern = product.category.slug !== 'chairs' && product.category.slug !== 'sofas'
+        ? newRow.thickness || ''
+        : ''
+      newRow.sku = generateSku(product.baseSku, color, pattern, newRow.size)
+      rows.push(newRow)
+    }
+
     setVariantsList(rows)
   }
 
@@ -1082,6 +1092,18 @@ export default function CatalogManagement({
 
                 {isExpanded && (
                   <div className="overflow-x-auto border-t border-[var(--border-primary)] bg-[var(--bg-surface-hover)]/35 px-3 py-3 sm:px-4">
+                    {canEditCatalog && ['tables', 'chairs', 'sets'].includes(product.category.slug) && (
+                      <div className="mb-3 flex min-w-[720px] justify-end">
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(product, true)}
+                          className="erp-button-secondary inline-flex min-h-9 items-center gap-1.5 !rounded-lg px-3 text-[10px]"
+                        >
+                          <Plus className="h-3.5 w-3.5" strokeWidth={2} />
+                          Добавить модификацию
+                        </button>
+                      </div>
+                    )}
                     <div className="min-w-[720px] overflow-hidden rounded-xl border border-[var(--border-primary)] bg-[var(--bg-surface)]">
                       <table className="w-full text-left text-[10px]">
                         <thead>
