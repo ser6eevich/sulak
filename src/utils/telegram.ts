@@ -355,17 +355,18 @@ export async function sendOrderTelegramNotification(
     if (itemsFormatted) {
       textMessage += `• ${itemsFormatted}\n`
     }
-    textMessage += `• Товары: ${((order.totalPrice || 0) / 100).toLocaleString('ru-RU')} ₽\n`
-    if (order.discount > 0) {
-      textMessage += `• Скидка: −${(order.discount / 100).toLocaleString('ru-RU')} ₽\n`
-    }
+    const priceAfterDiscount = Math.max(0, (order.totalPrice || 0) - (order.discount || 0))
+    const hasAdditionalCharges = order.deliveryPrice > 0 || order.assemblyPrice > 0
+    textMessage += `• ${(priceAfterDiscount / 100).toLocaleString('ru-RU')} ₽\n`
     if (order.deliveryPrice > 0) {
       textMessage += `• Доставка: +${(order.deliveryPrice / 100).toLocaleString('ru-RU')} ₽\n`
     }
     if (order.assemblyPrice > 0) {
       textMessage += `• Сборка и подъём: +${(order.assemblyPrice / 100).toLocaleString('ru-RU')} ₽\n`
     }
-    textMessage += `• <b>Итого: ${totalPriceFormatted} ₽</b>\n`
+    if (hasAdditionalCharges) {
+      textMessage += `• <b>Итого: ${totalPriceFormatted} ₽</b>\n`
+    }
 
     if (order.comment && order.comment.trim()) {
       textMessage += `• 💬 <b>Комментарий:</b> ${order.comment.trim()}\n`
