@@ -32,9 +32,9 @@ function orderFixture(imageUrl: string | null = null) {
     status: 'pending',
     paymentStatus: 'unpaid',
     totalPrice: 3_900_000,
-    discount: 0,
-    deliveryPrice: 0,
-    assemblyPrice: 0,
+    discount: 200_000,
+    deliveryPrice: 150_000,
+    assemblyPrice: 50_000,
     deliveryAddress: 'Калужская область, село Барятино',
     comment: 'Позвонить заранее',
     createdAt: new Date('2026-09-07T14:30:00.000Z'),
@@ -55,10 +55,26 @@ function orderFixture(imageUrl: string | null = null) {
         quantity: 1,
         customTableSize: '240/280x100',
         customChairsCount: null,
+        customColor: null,
         variant: {
           size: '240/280x100',
           color: 'Слоновая кость с золотом',
+          thickness: null,
+          attributes: { tablePattern: 'Мрамор' },
           product: { name: 'стол Голд 240/280x100' },
+        },
+      },
+      {
+        quantity: 6,
+        customTableSize: null,
+        customChairsCount: null,
+        customColor: 'Синий',
+        variant: {
+          size: null,
+          color: 'Белый с серебром',
+          thickness: null,
+          attributes: null,
+          product: { name: 'стул Медальон' },
         },
       },
     ],
@@ -99,6 +115,13 @@ describe('Telegram order message synchronization', () => {
     expect(caption).toContain('Комментарий:</b> Позвонить заранее')
     expect(caption).toContain('<code>+79066455610</code>')
     expect(caption).toContain('Доп. телефон: <code>+79061234567</code>')
+    expect(caption).toContain('стол: Голд 240/280, узор: Мрамор, цвет: Слоновая кость с золотом')
+    expect(caption).toContain('стул: Медальон — 6 шт, цвет: Синий')
+    expect(caption).toContain('Товары: 39 000 ₽')
+    expect(caption).toContain('Скидка: −2 000 ₽')
+    expect(caption).toContain('Доставка: +1 500 ₽')
+    expect(caption).toContain('Сборка и подъём: +500 ₽')
+    expect(caption).toContain('<b>Итого: 39 000 ₽</b>')
     expect(caption).toContain('#новый_заказ')
     expect(caption).not.toContain('#заказ_изменен')
     expect(prismaMock.systemSetting.upsert).not.toHaveBeenCalled()

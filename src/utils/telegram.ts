@@ -293,84 +293,53 @@ export async function sendOrderTelegramNotification(
       title = `❌ <b>Заказ ${orderNumStr} ОТМЕНЁН</b>`
     }
 
-    // Собираем позиции заказа (состав и цвет)
+    // Каждая позиция хранит и показывает собственные характеристики.
+    // Это особенно важно для отдельных столов и стульев с разными цветами.
     const itemLines: string[] = []
-    const colorSet = new Set<string>()
 
     if (order.items && order.items.length > 0) {
       for (const item of order.items) {
         const rawName = item.variant?.product?.name || ''
-        const customSize = item.customTableSize || item.variant?.size
-        const customChairs = item.customChairsCount
-        const color = item.variant?.color
+        const name = rawName
+          .replace(/\s*\(арт\.[^)]+\)/gi, '')
+          .replace(/\s*арт\.\s*\S+/gi, '')
+          .trim()
+        const color = item.customColor?.trim() || item.variant?.color?.trim()
+        const pattern = item.variant?.thickness
+          || (item.variant?.attributes as { tablePattern?: unknown } | null)?.tablePattern
+        const isTable = /^стол(?:\s|$)/i.test(name)
+        const isChair = /^стул(?:\s|$)/i.test(name)
 
-        if (color && color.trim()) {
-          colorSet.add(color.trim())
+        if (isTable) {
+          const size = cleanTableSize(item.customTableSize || item.variant?.size)
+          const model = name
+            .replace(/^стол(?:\s+|$)/i, '')
+            .replace(/\b\d{2,3}\/\d{2,3}(?:[xх*]\d{2,3})?\b/gi, '')
+            .trim()
+          const details = [`стол: ${model}${size ? ` ${size}` : ''}`]
+          if (typeof pattern === 'string' && pattern.trim()) details.push(`узор: ${pattern.trim()}`)
+          if (color) details.push(`цвет: ${color}`)
+          if (item.quantity > 1) details.push(`${item.quantity} шт`)
+          itemLines.push(details.join(', '))
+          continue
         }
 
-        // 1. Заменяем "комплект" / "Комплект" на "Стол"
-        let name = rawName.replace(/^комплект\s+/i, 'Стол ')
-
-        // 2. Убираем артикулы (арт. xxx или (арт. xxx))
-        name = name.replace(/\s*\(арт\.[^)]+\)/gi, '').replace(/\s*арт\.\s*\S+/gi, '').trim()
-
-        let defaultChairCount: number | null = null
-        let defaultSize = ''
-
-        // 3. Извлекаем количество стульев по умолчанию из конца названия (например, " 8" на конце "комплект Голд + Мини шейх 240/280x100 8")
-        const trailingNumMatch = name.match(/\s+(\d+)\s*$/)
-        if (trailingNumMatch) {
-          defaultChairCount = parseInt(trailingNumMatch[1], 10)
-          name = name.replace(/\s+\d+\s*$/, '').trim()
+        if (isChair) {
+          const model = name.replace(/^стул(?:\s+|$)/i, '').trim()
+          const details = [`стул: ${model}${item.quantity > 1 ? ` — ${item.quantity} шт` : ''}`]
+          if (color) details.push(`цвет: ${color}`)
+          itemLines.push(details.join(', '))
+          continue
         }
 
-        // 4. Извлекаем размер по умолчанию из названия (например, 240/280x100 или 200/240)
-        const sizeMatch = name.match(/\b\d{2,3}\/\d{2,3}(?:[xх*]\d{2,3})?\b/i)
-        if (sizeMatch) {
-          defaultSize = cleanTableSize(sizeMatch[0])
-          name = name.replace(/\b\d{2,3}\/\d{2,3}(?:[xх*]\d{2,3})?\b/gi, '').trim()
-        }
-
-        let tableName = name
-        let chairModel = ''
-
-        // 5. Разделяем по знаком "+" на стол и стулья
-        if (name.includes('+')) {
-          const parts = name.split('+')
-          tableName = parts[0].trim()
-          chairModel = parts[1].replace(/стул(ья|ей|а)?/gi, '').trim()
-        } else {
-          tableName = name.trim()
-        }
-
-        // Финальный размер стола без ширины (например 240/280)
-        const finalSize = cleanTableSize(customSize) || defaultSize
-        // Финальное количество стульев (если пользователь переопределил руками — берём руками, иначе по умолчанию)
-        const finalChairCount = customChairs !== null && customChairs !== undefined ? customChairs : defaultChairCount
-
-        // Собираем идеальную строку
-        let formattedLine = tableName
-        if (finalSize) {
-          formattedLine += ` ${finalSize}`
-        }
-
-        if (finalChairCount && finalChairCount > 0) {
-          formattedLine += ` + ${finalChairCount} стульев`
-          if (chairModel) {
-            formattedLine += ` ${chairModel}`
-          }
-        } else if (!tableName.toLowerCase().includes('стол') && item.quantity > 1) {
-          formattedLine += ` (${item.quantity} шт)`
-        }
-
-        if (formattedLine.trim()) {
-          itemLines.push(formattedLine.trim())
-        }
+        const details = [name || 'Товар']
+        if (color) details.push(`цвет: ${color}`)
+        if (item.quantity > 1) details.push(`${item.quantity} шт`)
+        itemLines.push(details.join(', '))
       }
     }
 
     const itemsFormatted = itemLines.length > 0 ? itemLines.join('\n• ') : null
-    const colorFormatted = colorSet.size > 0 ? Array.from(colorSet).join(', ') : null
 
     // Формируем текст в точности по стандарту менеджеров
     let textMessage = `${title} ${formattedDate}\n\n`
@@ -386,10 +355,17 @@ export async function sendOrderTelegramNotification(
     if (itemsFormatted) {
       textMessage += `• ${itemsFormatted}\n`
     }
-    if (colorFormatted) {
-      textMessage += `• цвет: ${colorFormatted}\n`
+    textMessage += `• Товары: ${((order.totalPrice || 0) / 100).toLocaleString('ru-RU')} ₽\n`
+    if (order.discount > 0) {
+      textMessage += `• Скидка: −${(order.discount / 100).toLocaleString('ru-RU')} ₽\n`
     }
-    textMessage += `• ${totalPriceFormatted} ₽\n`
+    if (order.deliveryPrice > 0) {
+      textMessage += `• Доставка: +${(order.deliveryPrice / 100).toLocaleString('ru-RU')} ₽\n`
+    }
+    if (order.assemblyPrice > 0) {
+      textMessage += `• Сборка и подъём: +${(order.assemblyPrice / 100).toLocaleString('ru-RU')} ₽\n`
+    }
+    textMessage += `• <b>Итого: ${totalPriceFormatted} ₽</b>\n`
 
     if (order.comment && order.comment.trim()) {
       textMessage += `• 💬 <b>Комментарий:</b> ${order.comment.trim()}\n`

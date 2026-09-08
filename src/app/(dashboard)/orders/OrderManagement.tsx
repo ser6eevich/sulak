@@ -84,6 +84,7 @@ interface OrderItem {
   subOrderIndex: number
   customTableSize: string | null
   customChairsCount: number | null
+  customColor: string | null
   variant: ProductVariant & {
     product: {
       name: string
@@ -135,6 +136,7 @@ interface OrderFormItem {
   subOrderIndex: number
   customTableSize?: string
   customChairsCount?: number
+  customColor?: string
 }
 
 interface AuditLogWithUser {
@@ -671,6 +673,7 @@ export default function OrderManagement({
         subOrderIndex: item.subOrderIndex,
         customTableSize: item.customTableSize || null,
         customChairsCount: item.customChairsCount || null,
+        customColor: item.customColor || null,
       })),
       customCreatedAt: isRetroactive && customCreatedAt ? new Date(customCreatedAt).toISOString() : null,
       customDeliveredAt: isRetroactive && customDeliveredAt && customStatus === 'delivered' ? new Date(customDeliveredAt).toISOString() : null,
@@ -740,6 +743,7 @@ export default function OrderManagement({
         subOrderIndex: it.subOrderIndex || 0,
         customTableSize: it.customTableSize || undefined,
         customChairsCount: it.customChairsCount !== null && it.customChairsCount !== undefined ? it.customChairsCount : undefined,
+        customColor: it.customColor || undefined,
       }
     })
 
@@ -1628,7 +1632,7 @@ export default function OrderManagement({
                                       <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
                                         {[
                                           (item.customTableSize ? `Размер стола: ${item.customTableSize} (Инд.)` : (item.variant.size && `Размер стола: ${item.variant.size}`)),
-                                          item.variant.color && `Цвет: ${item.variant.color}`,
+                                          (item.customColor || item.variant.color) && `Цвет: ${item.customColor || item.variant.color}`,
                                           (item.variant.thickness || (item.variant.attributes as { tablePattern?: string } | null)?.tablePattern) && `Узор: ${item.variant.thickness || (item.variant.attributes as { tablePattern?: string } | null)?.tablePattern}`
                                         ].filter(Boolean).join(' / ')}
                                       </div>
@@ -2165,8 +2169,10 @@ export default function OrderManagement({
                                     
                                     const isSet = cat.slug === 'sets'
                                     const isTable = cat.slug === 'tables'
-                                    
-                                    if (!isSet && !isTable) return null
+                                    const isChair = cat.slug === 'chairs'
+                                    const selectedColor = prod?.variants.find(variant => variant.id === item.variantId)?.color || ''
+
+                                    if (!isSet && !isTable && !isChair) return null
                                     
                                     return (
                                       <div className="sm:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-[var(--border-primary)] mt-1">
@@ -2197,6 +2203,22 @@ export default function OrderManagement({
                                               onChange={e => handleItemFieldChange(globalIdx, 'customChairsCount', parseInt(e.target.value) || 0)}
                                               className="w-full px-2 py-1 text-xs bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded focus:outline-none focus:border-brand"
                                             />
+                                          </div>
+                                        )}
+                                        {isChair && (
+                                          <div>
+                                            <label className="block text-[9px] font-bold text-[var(--text-tertiary)] mb-0.5">
+                                              Цвет стула
+                                            </label>
+                                            <input
+                                              type="text"
+                                              maxLength={100}
+                                              placeholder="Укажите фактический цвет"
+                                              value={item.customColor ?? selectedColor}
+                                              onChange={e => handleItemFieldChange(globalIdx, 'customColor', e.target.value)}
+                                              className="w-full px-2 py-1 text-xs bg-[var(--bg-surface-secondary)] border border-[var(--border-primary)] rounded focus:outline-none focus:border-brand"
+                                            />
+                                            <p className="mt-1 text-[9px] text-[var(--text-tertiary)]">Можно скорректировать цвет из каталога для этого заказа.</p>
                                           </div>
                                         )}
                                       </div>
@@ -2749,6 +2771,7 @@ export default function OrderManagement({
                                               unitPrice: vr.salePrice / 100,
                                               customChairsCount: defaultChairs,
                                               customTableSize: defaultSize,
+                                              customColor: cat?.slug === 'chairs' ? vr.color || undefined : undefined,
                                             }
                                           }))
                                         }

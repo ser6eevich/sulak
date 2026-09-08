@@ -22,6 +22,7 @@ const orderItemSchema = z.object({
   subOrderIndex: z.number().min(0).default(0),
   customTableSize: z.string().optional().nullable(),
   customChairsCount: z.number().optional().nullable(),
+  customColor: z.string().trim().max(100, 'Цвет не должен быть длиннее 100 символов').optional().nullable(),
 })
 
 const createOrderSchema = z.object({
@@ -231,6 +232,7 @@ export async function createOrderAction(data: z.infer<typeof createOrderSchema>)
             subOrderIndex: item.subOrderIndex,
             customTableSize: item.customTableSize || null,
             customChairsCount: item.customChairsCount || null,
+            customColor: item.customColor?.trim() || null,
           },
         })
       }
@@ -359,6 +361,7 @@ export async function updateOrderAction(data: z.infer<typeof updateOrderSchema>)
             subOrderIndex: item.subOrderIndex,
             customTableSize: item.customTableSize || null,
             customChairsCount: item.customChairsCount || null,
+            customColor: item.customColor?.trim() || null,
           },
         })
       }
