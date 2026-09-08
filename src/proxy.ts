@@ -13,8 +13,9 @@ export async function proxy(request: NextRequest) {
   const isLoginPage = path === '/login'
   const isUnauthorizedPage = path === '/unauthorized'
 
-  // Исключаем /api/cron/* из веб-авторизации, так как они имеют собственную проверку CRON_SECRET в заголовках
-  if (path.startsWith('/api/cron')) {
+  // Исключаем /api/cron/* и /api/external/* из веб-авторизации: у них собственная
+  // проверка секрета в заголовках (CRON_SECRET / EXTERNAL_API_TOKEN).
+  if (path.startsWith('/api/cron') || path.startsWith('/api/external')) {
     return NextResponse.next()
   }
 
