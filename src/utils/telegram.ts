@@ -70,9 +70,25 @@ type TelegramApiResponse<T> = {
 }
 
 const ORDER_TELEGRAM_MESSAGE_KEY_PREFIX = 'order_telegram_message_'
+const ORDER_TELEGRAM_RETRY_KEY_PREFIX = 'order_telegram_retry_'
+const TELEGRAM_RETRY_INITIAL_DELAY_MS = 5 * 60 * 1000
+const TELEGRAM_RETRY_MAX_DELAY_MS = 6 * 60 * 60 * 1000
+
+type PendingTelegramOrderDelivery = {
+  orderId: string
+  type: 'new_order'
+  attempts: number
+  nextRetryAt: string
+  createdAt: string
+  lastError?: string
+}
 
 function orderTelegramMessageKey(orderId: string) {
   return `${ORDER_TELEGRAM_MESSAGE_KEY_PREFIX}${orderId}`
+}
+
+function orderTelegramRetryKey(orderId: string) {
+  return `${ORDER_TELEGRAM_RETRY_KEY_PREFIX}${orderId}`
 }
 
 function isTelegramOrderMessageReference(value: unknown): value is TelegramOrderMessageReference {
@@ -111,6 +127,67 @@ async function saveOrderTelegramMessageReference(
   })
 }
 
+function parsePendingTelegramOrderDelivery(value: string): PendingTelegramOrderDelivery | null {
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!parsed || typeof parsed !== 'object') return null
+
+    const delivery = parsed as Partial<PendingTelegramOrderDelivery>
+    if (
+      typeof delivery.orderId !== 'string'
+      || delivery.type !== 'new_order'
+      || !Number.isInteger(delivery.attempts)
+      || typeof delivery.nextRetryAt !== 'string'
+      || Number.isNaN(Date.parse(delivery.nextRetryAt))
+      || typeof delivery.createdAt !== 'string'
+    ) {
+      return null
+    }
+
+    return delivery as PendingTelegramOrderDelivery
+  } catch {
+    return null
+  }
+}
+
+async function clearPendingTelegramOrderDelivery(orderId: string) {
+  await prisma.systemSetting.delete({
+    where: { key: orderTelegramRetryKey(orderId) },
+  }).catch(error => {
+    // Запись служебная: сбой её очистки не должен повторно отправлять заказ.
+    console.error(`Не удалось очистить очередь Telegram для заказа ${orderId}:`, error)
+  })
+}
+
+async function scheduleTelegramOrderRetry(orderId: string, error?: unknown) {
+  const key = orderTelegramRetryKey(orderId)
+  const existing = await prisma.systemSetting.findUnique({
+    where: { key },
+    select: { value: true },
+  })
+  const previous = existing ? parsePendingTelegramOrderDelivery(existing.value) : null
+  const attempts = (previous?.attempts ?? 0) + 1
+  const delay = Math.min(
+    TELEGRAM_RETRY_INITIAL_DELAY_MS * 2 ** Math.min(attempts - 1, 6),
+    TELEGRAM_RETRY_MAX_DELAY_MS
+  )
+  const now = new Date()
+  const delivery: PendingTelegramOrderDelivery = {
+    orderId,
+    type: 'new_order',
+    attempts,
+    nextRetryAt: new Date(now.getTime() + delay).toISOString(),
+    createdAt: previous?.createdAt ?? now.toISOString(),
+    ...(error instanceof Error ? { lastError: error.message } : {}),
+  }
+
+  await prisma.systemSetting.upsert({
+    where: { key },
+    update: { value: JSON.stringify(delivery) },
+    create: { key, value: JSON.stringify(delivery) },
+  })
+}
+
 async function readTelegramResponse<T>(response: Response): Promise<TelegramApiResponse<T>> {
   try {
     return await response.json() as TelegramApiResponse<T>
@@ -136,6 +213,7 @@ async function sendTelegramTextMessage({
       text,
       parse_mode: 'HTML',
     }),
+    signal: AbortSignal.timeout(10_000),
   })
   const body = await readTelegramResponse<TelegramMessage>(response)
 
@@ -210,7 +288,7 @@ function cleanTableSize(sizeStr?: string | null): string {
 /**
  * Единая отправка уведомлений по заказам в главный Telegram чат в формате менеджеров с фото
  */
-export async function sendOrderTelegramNotification(
+async function sendOrderTelegramNotificationAttempt(
   orderId: string,
   type: OrderNotificationType,
   cancellationReason?: string | null
@@ -220,20 +298,20 @@ export async function sendOrderTelegramNotification(
 
     if (!token || !chatId) {
       console.warn('Telegram не настроен (BOT_TOKEN или CHAT_ID не заполнены)')
-      return
+      return true
     }
 
     if (type === 'new_order' && !notifyFlags.new_order) {
       console.log('Уведомления о новых заказах отключены в настройках Telegram')
-      return
+      return true
     }
     if ((type === 'delivering' || type === 'delivered') && !notifyFlags.delivered) {
       console.log('Уведомления о доставленных заказах отключены в настройках Telegram')
-      return
+      return true
     }
     if (type === 'cancelled' && !notifyFlags.cancelled) {
       console.log('Уведомления об отмене заказов отключены в настройках Telegram')
-      return
+      return true
     }
 
     const order = await prisma.order.findUnique({
@@ -255,7 +333,13 @@ export async function sendOrderTelegramNotification(
       },
     })
 
-    if (!order) return
+    if (!order) return true
+
+    // Повторный запуск для уже опубликованного заказа не создаёт второе сообщение.
+    if (type === 'new_order') {
+      const existingReference = await getOrderTelegramMessageReference(orderId)
+      if (existingReference?.chatId === chatId) return true
+    }
 
     const manager = order.seller || order.creator
     const managerName = manager?.fullName || 'Не указан'
@@ -406,7 +490,7 @@ export async function sendOrderTelegramNotification(
         if (!edited) {
           console.error(`Карточка заказа ${orderNumStr} в Telegram не обновлена`)
         }
-        return
+        return edited
       }
 
       // Для заказов, созданных до появления привязки, один раз публикуем
@@ -419,7 +503,7 @@ export async function sendOrderTelegramNotification(
           kind: 'text',
         })
       }
-      return
+      return Boolean(replacement)
     }
 
     // Извлекаем все фото из заказа только для новых заказов (#новый_заказ)
@@ -444,6 +528,7 @@ export async function sendOrderTelegramNotification(
 
     let sentWithPhoto = false
     let sentMessageReference: TelegramOrderMessageReference | null = null
+    let shouldSendTextFallback = true
 
     if (photoUrls.length === 1) {
       // Одно фото — отправляем sendPhoto
@@ -458,6 +543,7 @@ export async function sendOrderTelegramNotification(
             caption: textMessage,
             parse_mode: 'HTML',
           }),
+          signal: AbortSignal.timeout(10_000),
         })
 
         const photoBody = await readTelegramResponse<TelegramMessage>(photoRes)
@@ -478,6 +564,9 @@ export async function sendOrderTelegramNotification(
         }
       } catch (photoErr) {
         console.warn('Ошибка при отправке sendPhoto в Telegram:', photoErr)
+        // При обрыве соединения Telegram мог принять запрос, но ответ не дошёл.
+        // Поэтому сразу не отправляем текстовую копию — повтор выполнит очередь.
+        shouldSendTextFallback = false
       }
     } else if (photoUrls.length > 1) {
       // Несколько фото подзаказов — отправляем единым альбомом через sendMediaGroup
@@ -496,6 +585,7 @@ export async function sendOrderTelegramNotification(
             chat_id: chatId,
             media,
           }),
+          signal: AbortSignal.timeout(10_000),
         })
 
         const mediaBody = await readTelegramResponse<TelegramMessage[]>(mediaRes)
@@ -517,11 +607,12 @@ export async function sendOrderTelegramNotification(
         }
       } catch (mediaErr) {
         console.warn('Ошибка при отправке sendMediaGroup в Telegram:', mediaErr)
+        shouldSendTextFallback = false
       }
     }
 
     // Если фото нет или отправка фото не удалась — отправляем обычное текстовое сообщение
-    if (!sentWithPhoto) {
+    if (!sentWithPhoto && shouldSendTextFallback) {
       const sentMessage = await sendTelegramTextMessage({ token, chatId, text: textMessage })
       if (sentMessage) {
         sentMessageReference = {
@@ -535,9 +626,56 @@ export async function sendOrderTelegramNotification(
     if (type === 'new_order' && sentMessageReference) {
       await saveOrderTelegramMessageReference(orderId, sentMessageReference)
     }
+    return type !== 'new_order' || Boolean(sentMessageReference)
   } catch (error) {
     console.error(`Ошибка отправки Telegram уведомления (${type}):`, error)
+    return false
   }
+}
+
+/**
+ * Публикует карточку заказа и сохраняет неотправленные новые заказы в очереди.
+ * Повтор всегда сначала проверяет привязку к исходному Telegram-сообщению,
+ * поэтому после успешной отправки дубликат не создаётся.
+ */
+export async function sendOrderTelegramNotification(
+  orderId: string,
+  type: OrderNotificationType,
+  cancellationReason?: string | null
+) {
+  const delivered = await sendOrderTelegramNotificationAttempt(orderId, type, cancellationReason)
+
+  if (type === 'new_order') {
+    if (delivered) {
+      await clearPendingTelegramOrderDelivery(orderId)
+    } else {
+      await scheduleTelegramOrderRetry(orderId)
+    }
+  }
+
+  return delivered
+}
+
+export async function retryPendingTelegramOrderNotifications() {
+  const pendingSettings = await prisma.systemSetting.findMany({
+    where: { key: { startsWith: ORDER_TELEGRAM_RETRY_KEY_PREFIX } },
+    select: { key: true, value: true },
+  })
+  const now = Date.now()
+  let attempted = 0
+  let delivered = 0
+
+  for (const setting of pendingSettings) {
+    const pending = parsePendingTelegramOrderDelivery(setting.value)
+    if (!pending || Date.parse(pending.nextRetryAt) > now) continue
+
+    attempted += 1
+    if (await sendOrderTelegramNotification(pending.orderId, pending.type)) {
+      delivered += 1
+    }
+  }
+
+  return { attempted, delivered, pending: pendingSettings.length - delivered }
 }
 
 export async function sendOrderDeliveredTelegramNotification(orderId: string) {

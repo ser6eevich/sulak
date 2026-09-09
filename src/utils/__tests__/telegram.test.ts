@@ -8,6 +8,8 @@ const prismaMock = vi.hoisted(() => ({
   systemSetting: {
     findUnique: vi.fn(),
     upsert: vi.fn(),
+    delete: vi.fn(),
+    findMany: vi.fn(),
   },
 }))
 
@@ -90,7 +92,10 @@ describe('Telegram order message synchronization', () => {
       { key: 'telegram_site_url', value: 'https://stoly.example.test' },
     ])
     prismaMock.order.findUnique.mockResolvedValue(orderFixture())
+    prismaMock.systemSetting.findUnique.mockResolvedValue(null)
     prismaMock.systemSetting.upsert.mockResolvedValue({})
+    prismaMock.systemSetting.delete.mockResolvedValue({})
+    prismaMock.systemSetting.findMany.mockResolvedValue([])
   })
 
   it('edits the original photo caption when an order message is linked', async () => {
@@ -196,6 +201,35 @@ describe('Telegram order message synchronization', () => {
       create: expect.objectContaining({
         value: JSON.stringify({ chatId: '-1001234567890', messageId: 202, kind: 'photo' }),
       }),
+    }))
+  })
+
+  it('does not duplicate a new order that already has a Telegram message', async () => {
+    prismaMock.systemSetting.findUnique.mockResolvedValue({
+      value: JSON.stringify({ chatId: '-1001234567890', messageId: 202, kind: 'text' }),
+    })
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await sendOrderTelegramNotification(orderId, 'new_order')
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(prismaMock.systemSetting.delete).toHaveBeenCalledWith({
+      where: { key: `order_telegram_retry_${orderId}` },
+    })
+  })
+
+  it('queues a new order after a network failure instead of sending a fallback duplicate', async () => {
+    prismaMock.order.findUnique.mockResolvedValue(
+      orderFixture(JSON.stringify({ order_0: ['https://cdn.example.test/order.jpg'] }))
+    )
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')))
+
+    await sendOrderTelegramNotification(orderId, 'new_order')
+
+    expect(prismaMock.systemSetting.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { key: `order_telegram_retry_${orderId}` },
+      create: expect.objectContaining({ key: `order_telegram_retry_${orderId}` }),
     }))
   })
 })
