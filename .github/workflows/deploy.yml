@@ -68,6 +68,8 @@ jobs:
             NEXT_DEPLOYMENT_ID="${{ github.sha }}" NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS="--max-old-space-size=2560" npm run build
 
             # Перезапуск процесса в PM2
-            pm2 restart sulak --update-env || pm2 start npm --name "sulak" -- run start
+            # У провайдера недоступен IPv4-маршрут к Telegram API, но доступен IPv6.
+            # Сохраняем этот приоритет и после каждого автоматического деплоя.
+            NODE_OPTIONS="--dns-result-order=ipv6first" pm2 restart sulak --update-env || NODE_OPTIONS="--dns-result-order=ipv6first" pm2 start npm --name "sulak" -- run start
 
             echo "✅ Деплой успешно завершён!"
