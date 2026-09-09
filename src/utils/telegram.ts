@@ -73,6 +73,8 @@ const ORDER_TELEGRAM_MESSAGE_KEY_PREFIX = 'order_telegram_message_'
 const ORDER_TELEGRAM_RETRY_KEY_PREFIX = 'order_telegram_retry_'
 const TELEGRAM_RETRY_INITIAL_DELAY_MS = 5 * 60 * 1000
 const TELEGRAM_RETRY_MAX_DELAY_MS = 6 * 60 * 60 * 1000
+// Telegram сначала забирает прикреплённое фото по URL; для S3 это может занять дольше обычного запроса.
+const TELEGRAM_MEDIA_REQUEST_TIMEOUT_MS = 45_000
 
 type PendingTelegramOrderDelivery = {
   orderId: string
@@ -543,7 +545,7 @@ async function sendOrderTelegramNotificationAttempt(
             caption: textMessage,
             parse_mode: 'HTML',
           }),
-          signal: AbortSignal.timeout(10_000),
+          signal: AbortSignal.timeout(TELEGRAM_MEDIA_REQUEST_TIMEOUT_MS),
         })
 
         const photoBody = await readTelegramResponse<TelegramMessage>(photoRes)
@@ -585,7 +587,7 @@ async function sendOrderTelegramNotificationAttempt(
             chat_id: chatId,
             media,
           }),
-          signal: AbortSignal.timeout(10_000),
+          signal: AbortSignal.timeout(TELEGRAM_MEDIA_REQUEST_TIMEOUT_MS),
         })
 
         const mediaBody = await readTelegramResponse<TelegramMessage[]>(mediaRes)
