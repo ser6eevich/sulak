@@ -232,4 +232,36 @@ describe('Telegram order message synchronization', () => {
       create: expect.objectContaining({ key: `order_telegram_retry_${orderId}` }),
     }))
   })
+
+  it('uses individual set dimensions and chair count in the Telegram message', async () => {
+    prismaMock.systemSetting.findUnique.mockResolvedValue({
+      value: JSON.stringify({ chatId: '-1001234567890', messageId: 42, kind: 'text' }),
+    })
+    prismaMock.order.findUnique.mockResolvedValue({
+      ...orderFixture(),
+      items: [{
+        quantity: 1,
+        customTableSize: '300/350х110',
+        customChairsCount: 12,
+        customColor: null,
+        variant: {
+          size: '240/280x100',
+          color: 'Белый с золотом',
+          thickness: null,
+          attributes: null,
+          product: { name: 'комплект Голд + Мини шейх 240/280x100 8' },
+        },
+      }],
+    })
+    const fetchMock = vi.fn().mockResolvedValue(
+      telegramResponse({ ok: true, result: { message_id: 42 } })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await sendOrderTelegramNotification(orderId, 'updated')
+
+    const text = JSON.parse(fetchMock.mock.calls[0][1].body).text
+    expect(text).toContain('комплект: Голд + Мини шейх, размер стола: 300/350 × 110, стулья: 12 шт')
+    expect(text).not.toContain('240/280x100 8')
+  })
 })

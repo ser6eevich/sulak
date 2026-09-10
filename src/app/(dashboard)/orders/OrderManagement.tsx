@@ -1631,7 +1631,7 @@ export default function OrderManagement({
                                       </div>
                                       <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
                                         {[
-                                          (item.customTableSize ? `Размер стола: ${item.customTableSize} (Инд.)` : (item.variant.size && `Размер стола: ${item.variant.size}`)),
+                                          (item.customTableSize ? `Размер стола: ${item.customTableSize}` : (item.variant.size && `Размер стола: ${item.variant.size}`)),
                                           (item.customColor || item.variant.color) && `Цвет: ${item.customColor || item.variant.color}`,
                                           (item.variant.thickness || (item.variant.attributes as { tablePattern?: string } | null)?.tablePattern) && `Узор: ${item.variant.thickness || (item.variant.attributes as { tablePattern?: string } | null)?.tablePattern}`
                                         ].filter(Boolean).join(' / ')}

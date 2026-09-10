@@ -287,6 +287,10 @@ function cleanTableSize(sizeStr?: string | null): string {
   return sizeStr.replace(/[xх*]\d+/gi, '').trim()
 }
 
+function formatCustomTableSize(sizeStr?: string | null): string {
+  return sizeStr?.trim().replace(/[xх*]/gi, ' × ')?.replace(/\s+/g, ' ') || ''
+}
+
 /**
  * Единая отправка уведомлений по заказам в главный Telegram чат в формате менеджеров с фото
  */
@@ -395,9 +399,32 @@ async function sendOrderTelegramNotificationAttempt(
           || (item.variant?.attributes as { tablePattern?: unknown } | null)?.tablePattern
         const isTable = /^стол(?:\s|$)/i.test(name)
         const isChair = /^стул(?:\s|$)/i.test(name)
+        const isSet = /^комплект(?:\s|$)/i.test(name)
+
+        if (isSet) {
+          const model = name
+            .replace(/^комплект(?:\s+|$)/i, '')
+            .replace(/\b\d{2,3}\/\d{2,3}(?:[xх*]\d{2,3})?\b/gi, '')
+            .replace(/\s+\d+\s*$/, '')
+            .trim()
+          const catalogChairsCount = Number(name.match(/\s(\d+)\s*$/)?.[1])
+          const chairsCount = item.customChairsCount ?? (Number.isFinite(catalogChairsCount) ? catalogChairsCount : null)
+          const tableSize = item.customTableSize && item.customTableSize !== item.variant?.size
+            ? formatCustomTableSize(item.customTableSize)
+            : cleanTableSize(item.customTableSize || item.variant?.size)
+          const details = [`комплект: ${model || 'Не указан'}`]
+          if (tableSize) details.push(`размер стола: ${tableSize}`)
+          if (chairsCount) details.push(`стулья: ${chairsCount} шт`)
+          if (color) details.push(`цвет: ${color}`)
+          if (item.quantity > 1) details.push(`${item.quantity} шт`)
+          itemLines.push(details.join(', '))
+          continue
+        }
 
         if (isTable) {
-          const size = cleanTableSize(item.customTableSize || item.variant?.size)
+          const size = item.customTableSize && item.customTableSize !== item.variant?.size
+            ? formatCustomTableSize(item.customTableSize)
+            : cleanTableSize(item.customTableSize || item.variant?.size)
           const model = name
             .replace(/^стол(?:\s+|$)/i, '')
             .replace(/\b\d{2,3}\/\d{2,3}(?:[xх*]\d{2,3})?\b/gi, '')

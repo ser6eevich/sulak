@@ -20,9 +20,10 @@ async function handle(request: NextRequest) {
   }
 
   const orderId = request.nextUrl.searchParams.get('orderId')?.trim()
+  const notificationType = request.nextUrl.searchParams.get('type') === 'updated' ? 'updated' : 'new_order'
   try {
     if (orderId) {
-      const delivered = await sendOrderTelegramNotification(orderId, 'new_order')
+      const delivered = await sendOrderTelegramNotification(orderId, notificationType)
       return NextResponse.json({ success: delivered, orderId })
     }
 
