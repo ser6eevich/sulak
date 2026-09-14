@@ -163,6 +163,7 @@ model Order {
   shippedAt          DateTime?   @map("shipped_at") @db.Timestamptz
   deliveryAlertSent  Boolean     @default(false) @map("delivery_alert_sent")
   feedbackType    String      @default("none") @map("feedback_type") // none, no_photo, with_photo
+  feedbackRating  Int?        @map("feedback_rating") // 3, 4 или 5; null для исторических отзывов
   feedbackAuthor  String?     @map("feedback_author")
   feedbackUrl     String?     @map("feedback_url")
   imageUrl        String?     @map("image_url")

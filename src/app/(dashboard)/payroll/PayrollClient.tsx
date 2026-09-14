@@ -61,6 +61,7 @@ interface ManagerReport {
       id: string
       number?: string | null
       feedbackType: string
+      feedbackRating: number | null
       feedbackAuthor: string | null
       feedbackUrl: string | null
       bonus: number
@@ -709,6 +710,7 @@ export default function PayrollClient() {
                             <tr className="border-b border-[var(--border-primary)] bg-[var(--bg-table-header)] text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">
                               <th className="p-2.5 pl-4">ID заказа</th>
                               <th className="p-2.5">Тип отзыва</th>
+                              <th className="p-2.5">Оценка</th>
                               <th className="p-2.5">Автор</th>
                               <th className="p-2.5">Ссылка на Авито</th>
                               <th className="p-2.5 text-right pr-4">Сумма бонуса</th>
@@ -717,7 +719,7 @@ export default function PayrollClient() {
                           <tbody className="divide-y divide-[var(--border-primary)] text-[var(--text-primary)] font-normal">
                             {report.details.feedbacks.length === 0 ? (
                               <tr>
-                                <td colSpan={5} className="p-3 text-center text-[var(--text-tertiary)] font-normal">Нет зарегистрированных отзывов</td>
+                                <td colSpan={6} className="p-3 text-center text-[var(--text-tertiary)] font-normal">Нет зарегистрированных отзывов</td>
                               </tr>
                             ) : (
                               report.details.feedbacks.map(f => (
@@ -725,11 +727,12 @@ export default function PayrollClient() {
                                   <td className="p-2.5 pl-4 font-mono font-medium text-[var(--text-primary)]">Заказ №{f.number ?? f.id.slice(-6).toUpperCase()}</td>
                                   <td className="p-2.5">
                                     {f.feedbackType === 'with_photo' ? (
-                                      <span className="text-[var(--success)] font-medium bg-[var(--success-soft)] px-2 py-0.5 rounded text-[10px]">С фото (+500 ₽)</span>
+                                      <span className="text-[var(--success)] font-medium bg-[var(--success-soft)] px-2 py-0.5 rounded text-[10px]">С фото</span>
                                     ) : (
-                                      <span className="text-[var(--text-secondary)] bg-[var(--bg-surface-secondary)] px-2 py-0.5 rounded text-[10px] border border-[var(--border-primary)]">Без фото (+300 ₽)</span>
+                                      <span className="text-[var(--text-secondary)] bg-[var(--bg-surface-secondary)] px-2 py-0.5 rounded text-[10px] border border-[var(--border-primary)]">Без фото</span>
                                     )}
                                   </td>
+                                  <td className="p-2.5 font-medium text-[var(--text-primary)]">{f.feedbackRating ? `${f.feedbackRating} ★` : '5 ★'}</td>
                                   <td className="p-2.5 text-[var(--text-secondary)] font-normal">{f.feedbackAuthor || '-'}</td>
                                   <td className="p-2.5">
                                     {f.feedbackUrl ? (

@@ -1,6 +1,7 @@
 'use server'
 
 import prisma from '@/lib/prisma'
+import { getFeedbackBonus } from '@/lib/payroll/feedback-bonus'
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
 import { getRateForOrderCount, getPeriodBoundsForDate, getEffectiveDeliveryBounds } from '@/utils/payroll'
@@ -224,12 +225,13 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
 
       for (const order of allDeliveredInPeriod) {
         if (order.feedbackType && order.feedbackType !== 'none') {
-          const bonus = order.feedbackType === 'with_photo' ? 500 : 300
+          const bonus = getFeedbackBonus(order.feedbackType as 'no_photo' | 'with_photo', order.feedbackRating)
           feedbackBonusSum += bonus
           feedbacks.push({
             id: order.id,
             number: order.number,
             feedbackType: order.feedbackType,
+            feedbackRating: order.feedbackRating,
             feedbackAuthor: order.feedbackAuthor,
             feedbackUrl: order.feedbackUrl,
             bonus,

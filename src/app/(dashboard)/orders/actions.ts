@@ -648,6 +648,7 @@ export async function deleteOrderAction(orderId: string) {
 export async function updateOrderFeedbackAction(
   orderId: string,
   feedbackType: string,
+  feedbackRating: number | null,
   feedbackAuthor: string,
   feedbackUrl: string
 ) {
@@ -656,6 +657,10 @@ export async function updateOrderFeedbackAction(
 
     if (!['none', 'no_photo', 'with_photo'].includes(feedbackType)) {
       return { error: 'Некорректный тип отзыва' }
+    }
+
+    if (feedbackType !== 'none' && ![3, 4, 5].includes(feedbackRating ?? 0)) {
+      return { error: 'Укажите оценку отзыва: 3, 4 или 5 звёзд' }
     }
 
     const order = await prisma.order.findUnique({
@@ -668,12 +673,14 @@ export async function updateOrderFeedbackAction(
 
     const oldData = {
       feedbackType: order.feedbackType,
+      feedbackRating: order.feedbackRating,
       feedbackAuthor: order.feedbackAuthor,
       feedbackUrl: order.feedbackUrl,
     }
 
     const newData = {
       feedbackType,
+      feedbackRating: feedbackType === 'none' ? null : feedbackRating,
       feedbackAuthor: feedbackAuthor.trim() || null,
       feedbackUrl: feedbackUrl.trim() || null,
     }
@@ -698,7 +705,7 @@ export async function updateOrderFeedbackAction(
           action: 'update_feedback',
           oldData,
           newData,
-          comment: `Обновлены данные отзыва: ${feedbackLabels[feedbackType]}.${feedbackAuthor.trim() ? ` Автор: ${feedbackAuthor.trim()}.` : ''}${feedbackUrl.trim() ? ` Ссылка: ${feedbackUrl.trim()}` : ''}`,
+          comment: `Обновлены данные отзыва: ${feedbackLabels[feedbackType]}${feedbackType !== 'none' ? `, ${feedbackRating} звёзд` : ''}.${feedbackAuthor.trim() ? ` Автор: ${feedbackAuthor.trim()}.` : ''}${feedbackUrl.trim() ? ` Ссылка: ${feedbackUrl.trim()}` : ''}`,
         },
       })
     })

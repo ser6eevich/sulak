@@ -16,6 +16,7 @@ import {
   batchUpdateOrdersDeliveredAction
 } from './actions'
 import { normalizeAddress } from '@/utils/address'
+import { getFeedbackBonus, type FeedbackType } from '@/lib/payroll/feedback-bonus'
 import {
   extractBatchOrderNumbers,
   type BatchDeliveryOrderPreview,
@@ -112,6 +113,7 @@ interface Order {
   }
   sellerId?: string | null
   feedbackType?: string
+  feedbackRating?: number | null
   feedbackAuthor?: string | null
   feedbackUrl?: string | null
   driverId?: string | null
@@ -264,9 +266,11 @@ export default function OrderManagement({
 
   // Состояния для отзывов
   const [feedbackType, setFeedbackType] = useState('none')
+  const [feedbackRating, setFeedbackRating] = useState<number | null>(null)
   const [feedbackAuthor, setFeedbackAuthor] = useState('')
   const [feedbackUrl, setFeedbackUrl] = useState('')
   const [feedbackLoading, setFeedbackLoading] = useState(false)
+  const feedbackBonusPreview = getFeedbackBonus(feedbackType as FeedbackType, feedbackRating)
 
   // Состояния для модалки создания/редактирования заказа
   const [createModalOpen, setCreateModalOpen] = useState(false)
@@ -508,6 +512,7 @@ export default function OrderManagement({
     setStatusComment('')
     setSelectedDriverId('')
     setFeedbackType(order.feedbackType || 'none')
+    setFeedbackRating(order.feedbackType && order.feedbackType !== 'none' ? order.feedbackRating ?? 5 : null)
     setFeedbackAuthor(order.feedbackAuthor || '')
     setFeedbackUrl(order.feedbackUrl || '')
     setAuditLogs([])
@@ -939,6 +944,7 @@ export default function OrderManagement({
     const result = await updateOrderFeedbackAction(
       selectedOrder.id,
       feedbackType,
+      feedbackRating,
       feedbackAuthor,
       feedbackUrl
     )
@@ -950,6 +956,7 @@ export default function OrderManagement({
       const updatedOrder = {
         ...selectedOrder,
         feedbackType,
+        feedbackRating: feedbackType === 'none' ? null : feedbackRating,
         feedbackAuthor: feedbackAuthor.trim() || null,
         feedbackUrl: feedbackUrl.trim() || null
       }
@@ -1806,17 +1813,34 @@ export default function OrderManagement({
                         <label className="erp-label">Тип отзыва</label>
                         <select
                           value={feedbackType}
-                          onChange={e => setFeedbackType(e.target.value)}
+                          onChange={e => {
+                            const nextType = e.target.value
+                            setFeedbackType(nextType)
+                            setFeedbackRating(nextType === 'none' ? null : feedbackRating ?? 5)
+                          }}
                           className="erp-input w-full py-1"
                         >
                           <option value="none">Без отзыва (0 ₽)</option>
-                          <option value="no_photo">Отзыв без фото (+300 ₽ менеджеру)</option>
-                          <option value="with_photo">Отзыв с фото (+500 ₽ менеджеру)</option>
+                          <option value="no_photo">Отзыв без фото</option>
+                          <option value="with_photo">Отзыв с фото</option>
                         </select>
                       </div>
 
                       {feedbackType !== 'none' && (
                         <>
+                          <div>
+                            <label className="erp-label">Оценка клиента *</label>
+                            <select
+                              value={feedbackRating ?? 5}
+                              onChange={e => setFeedbackRating(Number(e.target.value))}
+                              className="erp-input w-full py-1"
+                            >
+                              <option value={5}>5 звёзд — базовая премия</option>
+                              <option value={4}>4 звезды — минус 100 ₽</option>
+                              <option value={3}>3 звезды — минус 200 ₽</option>
+                            </select>
+                            <p className="mt-1 text-[10px] text-[var(--text-tertiary)]">Начисление менеджеру: +{feedbackBonusPreview.toLocaleString('ru-RU')} ₽</p>
+                          </div>
                           <div>
                             <label className="erp-label">Имя автора отзыва *</label>
                             <input
