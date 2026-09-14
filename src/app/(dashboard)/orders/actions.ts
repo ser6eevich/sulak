@@ -674,6 +674,7 @@ export async function updateOrderFeedbackAction(
     const oldData = {
       feedbackType: order.feedbackType,
       feedbackRating: order.feedbackRating,
+      feedbackRecordedAt: order.feedbackRecordedAt,
       feedbackAuthor: order.feedbackAuthor,
       feedbackUrl: order.feedbackUrl,
     }
@@ -681,6 +682,11 @@ export async function updateOrderFeedbackAction(
     const newData = {
       feedbackType,
       feedbackRating: feedbackType === 'none' ? null : feedbackRating,
+      feedbackRecordedAt: feedbackType === 'none'
+        ? null
+        : order.feedbackType === 'none' || !order.feedbackRecordedAt
+          ? new Date()
+          : order.feedbackRecordedAt,
       feedbackAuthor: feedbackAuthor.trim() || null,
       feedbackUrl: feedbackUrl.trim() || null,
     }

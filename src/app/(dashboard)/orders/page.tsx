@@ -4,7 +4,7 @@ import prisma from '@/lib/prisma'
 import OrderManagement from './OrderManagement'
 import type { Prisma } from '@prisma/client'
 import { requireAccess } from '@/lib/auth/dal'
-import { parseExactOrderNumberQuery } from '@/lib/orders/search'
+import { normalizePhoneSearchQuery, parseExactOrderNumberQuery } from '@/lib/orders/search'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,6 +33,7 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const params = await searchParams
   const query = (typeof params.q === 'string' ? params.q : '').trim().slice(0, 100)
   const exactOrderNumber = parseExactOrderNumberQuery(query)
+  const phoneSearchQuery = normalizePhoneSearchQuery(query)
   const requestedStatus = typeof params.status === 'string' ? params.status : 'all'
   const allowedStatuses = ['pending', 'confirmed', 'production', 'warehouse', 'awaiting_delivery', 'delivery', 'delivered', 'cancelled']
   const status = allowedStatuses.includes(requestedStatus) ? requestedStatus : 'all'
@@ -48,8 +49,10 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
         : {
             OR: [
               { client: { fullName: { contains: query, mode: 'insensitive' } } },
-              { client: { primaryPhone: { contains: query } } },
-              { client: { additionalPhone: { contains: query } } },
+              ...(phoneSearchQuery ? [
+                { client: { primaryPhone: { contains: phoneSearchQuery } } },
+                { client: { additionalPhone: { contains: phoneSearchQuery } } },
+              ] : []),
             ],
           }
       : {}),

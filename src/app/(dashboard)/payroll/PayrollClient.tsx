@@ -62,6 +62,7 @@ interface ManagerReport {
       number?: string | null
       feedbackType: string
       feedbackRating: number | null
+      feedbackRecordedAt: string | Date | null
       feedbackAuthor: string | null
       feedbackUrl: string | null
       bonus: number
@@ -711,6 +712,7 @@ export default function PayrollClient() {
                               <th className="p-2.5 pl-4">ID заказа</th>
                               <th className="p-2.5">Тип отзыва</th>
                               <th className="p-2.5">Оценка</th>
+                              <th className="p-2.5">Отмечен</th>
                               <th className="p-2.5">Автор</th>
                               <th className="p-2.5">Ссылка на Авито</th>
                               <th className="p-2.5 text-right pr-4">Сумма бонуса</th>
@@ -719,7 +721,7 @@ export default function PayrollClient() {
                           <tbody className="divide-y divide-[var(--border-primary)] text-[var(--text-primary)] font-normal">
                             {report.details.feedbacks.length === 0 ? (
                               <tr>
-                                <td colSpan={6} className="p-3 text-center text-[var(--text-tertiary)] font-normal">Нет зарегистрированных отзывов</td>
+                                <td colSpan={7} className="p-3 text-center text-[var(--text-tertiary)] font-normal">Нет зарегистрированных отзывов</td>
                               </tr>
                             ) : (
                               report.details.feedbacks.map(f => (
@@ -733,6 +735,7 @@ export default function PayrollClient() {
                                     )}
                                   </td>
                                   <td className="p-2.5 font-medium text-[var(--text-primary)]">{f.feedbackRating ? `${f.feedbackRating} ★` : '5 ★'}</td>
+                                  <td className="p-2.5 whitespace-nowrap text-[var(--text-secondary)] font-normal">{f.feedbackRecordedAt ? new Date(f.feedbackRecordedAt).toLocaleDateString('ru-RU') : '—'}</td>
                                   <td className="p-2.5 text-[var(--text-secondary)] font-normal">{f.feedbackAuthor || '-'}</td>
                                   <td className="p-2.5">
                                     {f.feedbackUrl ? (

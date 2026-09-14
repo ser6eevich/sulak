@@ -114,6 +114,7 @@ interface Order {
   sellerId?: string | null
   feedbackType?: string
   feedbackRating?: number | null
+  feedbackRecordedAt?: Date | string | null
   feedbackAuthor?: string | null
   feedbackUrl?: string | null
   driverId?: string | null
@@ -957,6 +958,11 @@ export default function OrderManagement({
         ...selectedOrder,
         feedbackType,
         feedbackRating: feedbackType === 'none' ? null : feedbackRating,
+        feedbackRecordedAt: feedbackType === 'none'
+          ? null
+          : selectedOrder.feedbackType === 'none' || !selectedOrder.feedbackRecordedAt
+            ? new Date().toISOString()
+            : selectedOrder.feedbackRecordedAt,
         feedbackAuthor: feedbackAuthor.trim() || null,
         feedbackUrl: feedbackUrl.trim() || null
       }

@@ -208,14 +208,14 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
         })
       }
 
-      // 4. Отзывы и бонусы по уникальным заказам, доставленным в отсечке этого периода
-      const allDeliveredInPeriod = await prisma.order.findMany({
+      // 4. Бонус относится к периоду, в котором отзыв отметили в CRM, а не к дате доставки заказа.
+      const feedbackOrdersInPeriod = await prisma.order.findMany({
         where: {
           sellerId: emp.id,
-          status: 'delivered',
-          deliveredAt: {
-            gte: deliveryStart,
-            lt: deliveryEnd,
+          feedbackType: { not: 'none' },
+          feedbackRecordedAt: {
+            gte: start,
+            lt: end,
           },
         },
       })
@@ -223,20 +223,19 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
       let feedbackBonusSum = 0
       const feedbacks = []
 
-      for (const order of allDeliveredInPeriod) {
-        if (order.feedbackType && order.feedbackType !== 'none') {
-          const bonus = getFeedbackBonus(order.feedbackType as 'no_photo' | 'with_photo', order.feedbackRating)
-          feedbackBonusSum += bonus
-          feedbacks.push({
-            id: order.id,
-            number: order.number,
-            feedbackType: order.feedbackType,
-            feedbackRating: order.feedbackRating,
-            feedbackAuthor: order.feedbackAuthor,
-            feedbackUrl: order.feedbackUrl,
-            bonus,
-          })
-        }
+      for (const order of feedbackOrdersInPeriod) {
+        const bonus = getFeedbackBonus(order.feedbackType as 'no_photo' | 'with_photo', order.feedbackRating)
+        feedbackBonusSum += bonus
+        feedbacks.push({
+          id: order.id,
+          number: order.number,
+          feedbackType: order.feedbackType,
+          feedbackRating: order.feedbackRating,
+          feedbackRecordedAt: order.feedbackRecordedAt,
+          feedbackAuthor: order.feedbackAuthor,
+          feedbackUrl: order.feedbackUrl,
+          bonus,
+        })
       }
 
       const totalPayout = currentDeliveriesSum + pastDeliveriesSum + feedbackBonusSum
