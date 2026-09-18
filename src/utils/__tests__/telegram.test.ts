@@ -133,6 +133,50 @@ describe('Telegram order message synchronization', () => {
     expect(prismaMock.systemSetting.upsert).not.toHaveBeenCalled()
   })
 
+  it('replaces the original Telegram photo when the order photo changes', async () => {
+    prismaMock.systemSetting.findUnique.mockResolvedValue({
+      value: JSON.stringify({ chatId: '-1001234567890', messageId: 42, kind: 'photo' }),
+    })
+    prismaMock.order.findUnique.mockResolvedValue(
+      orderFixture(JSON.stringify({ order_0: ['https://cdn.example.test/replacement.jpg'] }))
+    )
+    const fetchMock = vi.fn().mockResolvedValue(
+      telegramResponse({ ok: true, result: { message_id: 42 } })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await sendOrderTelegramNotification(orderId, 'updated')
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toContain('/editMessageMedia')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+      chat_id: '-1001234567890',
+      message_id: 42,
+      media: {
+        type: 'photo',
+        media: 'https://cdn.example.test/replacement.jpg',
+        caption: expect.stringContaining('<b>Заказ №515</b>'),
+      },
+    })
+  })
+
+  it('keeps a text-only Telegram card as text when a photo is later added', async () => {
+    prismaMock.systemSetting.findUnique.mockResolvedValue({
+      value: JSON.stringify({ chatId: '-1001234567890', messageId: 42, kind: 'text' }),
+    })
+    prismaMock.order.findUnique.mockResolvedValue(
+      orderFixture(JSON.stringify({ order_0: ['https://cdn.example.test/order.jpg'] }))
+    )
+    const fetchMock = vi.fn().mockResolvedValue(
+      telegramResponse({ ok: true, result: { message_id: 42 } })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await sendOrderTelegramNotification(orderId, 'updated')
+
+    expect(fetchMock.mock.calls[0][0]).toContain('/editMessageText')
+  })
+
   it('retries a transient network failure and edits the same message', async () => {
     prismaMock.systemSetting.findUnique.mockResolvedValue({
       value: JSON.stringify({ chatId: '-1001234567890', messageId: 42, kind: 'text' }),

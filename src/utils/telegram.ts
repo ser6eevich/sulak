@@ -280,6 +280,87 @@ async function editOrderTelegramMessage({
 }
 
 /**
+ * Меняет саму фотографию исходной карточки заказа, а не создаёт новое
+ * сообщение. Для альбома Telegram позволяет изменить фотографию первого
+ * сообщения, к которому привязана подпись заказа.
+ */
+async function editOrderTelegramMedia({
+  token,
+  reference,
+  photoUrl,
+  text,
+}: {
+  token: string
+  reference: TelegramOrderMessageReference
+  photoUrl: string
+  text: string
+}) {
+  const method = 'editMessageMedia'
+  const endpoint = `https://api.telegram.org/bot${token}/${method}`
+  const requestBody = JSON.stringify({
+    chat_id: reference.chatId,
+    message_id: reference.messageId,
+    media: {
+      type: 'photo',
+      media: photoUrl,
+      caption: text,
+      parse_mode: 'HTML',
+    },
+  })
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody,
+        signal: AbortSignal.timeout(TELEGRAM_MEDIA_REQUEST_TIMEOUT_MS),
+      })
+      const body = await readTelegramResponse<TelegramMessage | true>(response)
+
+      if (response.ok && body.ok) return true
+
+      if (body.description?.toLowerCase().includes('message is not modified')) return true
+
+      const retryable = response.status === 429 || response.status >= 500
+      if (!retryable || attempt === 3) {
+        console.warn(`Telegram ${method} не прошёл:`, body.description || response.statusText)
+        return false
+      }
+    } catch (error) {
+      if (attempt === 3) {
+        console.warn(`Telegram ${method} не прошёл после 3 попыток:`, error)
+        return false
+      }
+    }
+
+    await new Promise(resolve => setTimeout(resolve, attempt * 300))
+  }
+
+  return false
+}
+
+function getOrderPhotoUrls(imageUrl?: string | null): string[] {
+  if (!imageUrl) return []
+
+  try {
+    const parsed: unknown = JSON.parse(imageUrl)
+    if (typeof parsed === 'string') {
+      return parsed.startsWith('http') ? [parsed] : []
+    }
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      return Object.values(parsed)
+        .flatMap(value => Array.isArray(value) ? value : [value])
+        .filter((value): value is string => typeof value === 'string' && value.startsWith('http'))
+    }
+  } catch {
+    return imageUrl.startsWith('http') ? [imageUrl] : []
+  }
+
+  return []
+}
+
+/**
  * Вспомогательная функция очистки ширины стола (например, 240/280x100 -> 240/280)
  */
 function cleanTableSize(sizeStr?: string | null): string {
@@ -510,11 +591,19 @@ async function sendOrderTelegramNotificationAttempt(
       const existingReference = await getOrderTelegramMessageReference(orderId)
 
       if (existingReference?.chatId === chatId) {
-        const edited = await editOrderTelegramMessage({
-          token,
-          reference: existingReference,
-          text: textMessage,
-        })
+        const currentPhotoUrl = getOrderPhotoUrls(order.imageUrl)[0]
+        const edited = currentPhotoUrl && existingReference.kind !== 'text'
+          ? await editOrderTelegramMedia({
+              token,
+              reference: existingReference,
+              photoUrl: currentPhotoUrl,
+              text: textMessage,
+            })
+          : await editOrderTelegramMessage({
+              token,
+              reference: existingReference,
+              text: textMessage,
+            })
 
         if (!edited) {
           console.error(`Карточка заказа ${orderNumStr} в Telegram не обновлена`)
@@ -536,24 +625,7 @@ async function sendOrderTelegramNotificationAttempt(
     }
 
     // Извлекаем все фото из заказа только для новых заказов (#новый_заказ)
-    let photoUrls: string[] = []
-    if (type === 'new_order' && order.imageUrl) {
-      try {
-        const parsed = JSON.parse(order.imageUrl)
-        if (typeof parsed === 'object' && parsed !== null) {
-          const rawValues = Object.values(parsed).flat()
-          photoUrls = rawValues.filter(
-            (v): v is string => typeof v === 'string' && v.startsWith('http')
-          )
-        } else if (typeof parsed === 'string' && parsed.startsWith('http')) {
-          photoUrls = [parsed]
-        }
-      } catch {
-        if (typeof order.imageUrl === 'string' && order.imageUrl.startsWith('http')) {
-          photoUrls = [order.imageUrl]
-        }
-      }
-    }
+    const photoUrls = type === 'new_order' ? getOrderPhotoUrls(order.imageUrl) : []
 
     let sentWithPhoto = false
     let sentMessageReference: TelegramOrderMessageReference | null = null

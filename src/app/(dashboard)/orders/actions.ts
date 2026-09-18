@@ -807,6 +807,13 @@ export async function updateOrderImageAction(
     })
 
     revalidatePath('/orders')
+    // Обновляем исходную Telegram-карточку на месте. Ошибка Telegram не должна
+    // отменять уже сохранённое в CRM изменение фотографии.
+    const telegramUpdated = await sendOrderTelegramNotification(orderId, 'updated')
+    if (!telegramUpdated) {
+      console.error(`Не удалось обновить фото заказа ${order.number} в Telegram`)
+    }
+
     return { success: true, imageUrl: newImageUrlValue }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Не удалось обновить изображение заказа' }
