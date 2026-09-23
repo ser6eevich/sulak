@@ -52,6 +52,10 @@ describe('Payroll Calculations', () => {
 
     it('preserves the old rates before September', () => {
       expect(getRateForOrderCount(64, new Date('2026-08-31T20:59:59.999Z'))).toBe(850)
+      expect(getRateForOrderCount(65, new Date('2026-08-01T00:00:00.000Z'))).toBe(1000)
+      expect(getRateForOrderCount(80, new Date('2026-07-01T00:00:00.000Z'))).toBe(1300)
+      expect(getRateForOrderCount(100, new Date('2026-06-01T00:00:00.000Z'))).toBe(1700)
+      expect(getRateForOrderCount(120, new Date('2026-05-01T00:00:00.000Z'))).toBe(2000)
     })
 
     it('doubles only orders marked as new price', () => {

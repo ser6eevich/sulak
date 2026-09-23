@@ -56,6 +56,57 @@ const updateOrderSchema = createOrderSchema.extend({
 const batchOrderNumbersSchema = z.array(z.string().regex(/^\d+$/)).min(1).max(500)
 const batchOrderIdsSchema = z.array(z.string().uuid()).min(1).max(500)
 
+function equalNullableDates(
+  left: Date | string | null | undefined,
+  right: Date | string | null | undefined
+) {
+  if (!left && !right) return true
+  if (!left || !right) return false
+  return new Date(left).getTime() === new Date(right).getTime()
+}
+
+function haveOrderItemsChanged(
+  existingItems: Array<{
+    productVariantId: string
+    quantity: number
+    unitPrice: number
+    subOrderIndex: number
+    customTableSize: string | null
+    customChairsCount: number | null
+    customColor: string | null
+  }>,
+  nextItems: z.infer<typeof orderItemSchema>[]
+) {
+  if (existingItems.length !== nextItems.length) return true
+
+  const serializeExistingItem = (item: typeof existingItems[number]) => JSON.stringify({
+    productVariantId: item.productVariantId,
+    quantity: item.quantity,
+    unitPrice: item.unitPrice,
+    subOrderIndex: item.subOrderIndex,
+    customTableSize: item.customTableSize,
+    customChairsCount: item.customChairsCount,
+    customColor: item.customColor,
+  })
+  const serializeNextItem = (item: typeof nextItems[number]) => JSON.stringify({
+    productVariantId: item.productVariantId,
+    quantity: item.quantity,
+    unitPrice: Math.round(item.unitPrice * 100),
+    subOrderIndex: item.subOrderIndex,
+    customTableSize: item.customTableSize || null,
+    customChairsCount: item.customChairsCount || null,
+    customColor: item.customColor?.trim() || null,
+  })
+
+  return existingItems
+    .map(serializeExistingItem)
+    .sort()
+    .join('|') !== nextItems
+    .map(serializeNextItem)
+    .sort()
+    .join('|')
+}
+
 async function checkManagerOrAbove() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -294,12 +345,51 @@ export async function updateOrderAction(data: z.infer<typeof updateOrderSchema>)
       return { error: 'Заказ не найден' }
     }
 
+    const normalizedAdditional = validated.clientAdditionalPhone
+      ? normalizePhoneNumber(validated.clientAdditionalPhone)
+      : null
+    const totalPrice = validated.items.reduce(
+      (sum, item) => sum + Math.round(item.quantity * item.unitPrice * 100),
+      0
+    )
+    const discountCents = Math.round(validated.discount * 100)
+    const deliveryPriceCents = Math.round(validated.deliveryPrice * 100)
+    const assemblyPriceCents = Math.round(validated.assemblyPrice * 100)
+    const grandTotalCents = totalPrice + deliveryPriceCents + assemblyPriceCents - discountCents
+    const resultingPaymentStatus = retrospectiveFields?.paymentStatus || existingOrder.paymentStatus
+    const normalizedDeliveryAddress = validated.deliveryAddress
+      ? normalizeAddress(validated.deliveryAddress)
+      : null
+    const nextImageUrl = validated.imageUrl !== undefined ? validated.imageUrl : existingOrder.imageUrl
+    const nextPlannedDeliveryDate = validated.plannedDeliveryDate
+      ? new Date(validated.plannedDeliveryDate)
+      : null
+
+    // «Новая цена» влияет только на расчёт зарплаты. Изменение одной этой отметки
+    // не должно редактировать или повторно публиковать карточку заказа в Telegram.
+    const hasTelegramRelevantChanges =
+      existingOrder.client.fullName !== validated.clientName ||
+      existingOrder.client.primaryPhone !== normalizedPhone ||
+      existingOrder.client.additionalPhone !== normalizedAdditional ||
+      existingOrder.totalPrice !== totalPrice ||
+      existingOrder.discount !== discountCents ||
+      existingOrder.deliveryPrice !== deliveryPriceCents ||
+      existingOrder.assemblyPrice !== assemblyPriceCents ||
+      existingOrder.deliveryAddress !== normalizedDeliveryAddress ||
+      existingOrder.comment !== validated.comment ||
+      existingOrder.sellerId !== validated.sellerId ||
+      existingOrder.imageUrl !== nextImageUrl ||
+      !equalNullableDates(existingOrder.plannedDeliveryDate, nextPlannedDeliveryDate) ||
+      haveOrderItemsChanged(existingOrder.items, validated.items) ||
+      Boolean(retrospectiveFields && (
+        !equalNullableDates(existingOrder.createdAt, retrospectiveFields.createdAt) ||
+        !equalNullableDates(existingOrder.deliveredAt, retrospectiveFields.deliveredAt) ||
+        existingOrder.status !== retrospectiveFields.status ||
+        existingOrder.paymentStatus !== retrospectiveFields.paymentStatus
+      ))
+
     const orderResult = await prisma.$transaction(async (tx) => {
       // 2. Обновляем данные клиента
-      const normalizedAdditional = validated.clientAdditionalPhone 
-        ? normalizePhoneNumber(validated.clientAdditionalPhone) 
-        : null
-
       await tx.client.update({
         where: { id: existingOrder.clientId },
         data: {
@@ -310,19 +400,7 @@ export async function updateOrderAction(data: z.infer<typeof updateOrderSchema>)
         },
       })
 
-      // 3. Перерасчитываем суммы
-      let totalPrice = 0
-      for (const item of validated.items) {
-        totalPrice += Math.round(item.quantity * item.unitPrice * 100)
-      }
-
-      const discountCents = Math.round(validated.discount * 100)
-      const deliveryPriceCents = Math.round(validated.deliveryPrice * 100)
-      const assemblyPriceCents = Math.round(validated.assemblyPrice * 100)
-      const grandTotalCents = totalPrice + deliveryPriceCents + assemblyPriceCents - discountCents
-      const resultingPaymentStatus = retrospectiveFields?.paymentStatus || existingOrder.paymentStatus
-
-      // 4. Обновляем сам заказ
+      // 3. Обновляем сам заказ
       const updatedOrder = await tx.order.update({
         where: { id: validated.orderId },
         data: {
@@ -335,11 +413,11 @@ export async function updateOrderAction(data: z.infer<typeof updateOrderSchema>)
             : resultingPaymentStatus === 'unpaid'
               ? 0
               : existingOrder.prepayment,
-          deliveryAddress: validated.deliveryAddress ? normalizeAddress(validated.deliveryAddress) : null,
+          deliveryAddress: normalizedDeliveryAddress,
           comment: validated.comment,
           sellerId: validated.sellerId,
-          imageUrl: validated.imageUrl !== undefined ? validated.imageUrl : existingOrder.imageUrl,
-          plannedDeliveryDate: validated.plannedDeliveryDate ? new Date(validated.plannedDeliveryDate) : null,
+          imageUrl: nextImageUrl,
+          plannedDeliveryDate: nextPlannedDeliveryDate,
           isNewPrice: validated.isNewPrice ?? existingOrder.isNewPrice,
           ...(retrospectiveFields ? {
             createdAt: retrospectiveFields.createdAt,
@@ -350,7 +428,7 @@ export async function updateOrderAction(data: z.infer<typeof updateOrderSchema>)
         },
       })
 
-      // 5. Безопасно пересоздаем позиции заказа
+      // 4. Безопасно пересоздаем позиции заказа
       await tx.orderItem.deleteMany({
         where: { orderId: validated.orderId },
       })
@@ -370,7 +448,7 @@ export async function updateOrderAction(data: z.infer<typeof updateOrderSchema>)
         })
       }
 
-      // 6. Фиксируем аудит-лог изменений
+      // 5. Фиксируем аудит-лог изменений
       const orderNumStr = existingOrder.number ? `№${existingOrder.number}` : `#${existingOrder.id.slice(-6).toUpperCase()}`
       await tx.auditLog.create({
         data: {
@@ -404,7 +482,9 @@ export async function updateOrderAction(data: z.infer<typeof updateOrderSchema>)
     revalidatePath('/payroll')
     revalidatePath('/dashboard')
 
-    await sendOrderTelegramNotification(orderResult.id, 'updated')
+    if (hasTelegramRelevantChanges) {
+      await sendOrderTelegramNotification(orderResult.id, 'updated')
+    }
 
     return { success: true, orderId: orderResult.id }
   } catch (error: unknown) {
