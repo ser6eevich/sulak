@@ -651,6 +651,112 @@ export async function deleteOrderAction(orderId: string) {
   }
 }
 
+export async function batchUpdateOrdersNewPriceAction(orderIds: string[], isNewPrice: boolean) {
+  try {
+    const currentUserId = await checkManagerOrAbove()
+    const validatedOrderIds = batchOrderIdsSchema.parse(orderIds)
+    const orders = await prisma.order.findMany({
+      where: { id: { in: validatedOrderIds } },
+      select: { id: true, number: true, isNewPrice: true },
+    })
+
+    if (orders.length === 0) {
+      return { error: 'Выбранные заказы не найдены' }
+    }
+
+    const changedOrders = orders.filter(order => order.isNewPrice !== isNewPrice)
+    if (changedOrders.length === 0) {
+      return { success: true, updatedCount: 0 }
+    }
+
+    await prisma.$transaction(async tx => {
+      await tx.order.updateMany({
+        where: { id: { in: changedOrders.map(order => order.id) } },
+        data: { isNewPrice },
+      })
+
+      await tx.auditLog.createMany({
+        data: changedOrders.map(order => ({
+          userId: currentUserId,
+          entityType: 'order',
+          entityId: order.id,
+          action: 'batch_update_new_price',
+          oldData: { isNewPrice: order.isNewPrice },
+          newData: { isNewPrice },
+          comment: `Для заказа ${order.number ? `№${order.number}` : `#${order.id.slice(-6).toUpperCase()}`} ${isNewPrice ? 'включена' : 'выключена'} отметка «Новая цена»`,
+        })),
+      })
+    })
+
+    revalidatePath('/orders')
+    revalidatePath('/payroll')
+    revalidatePath('/dashboard')
+    return { success: true, updatedCount: changedOrders.length }
+  } catch (error: unknown) {
+    return { error: error instanceof Error ? error.message : 'Ошибка при пакетном изменении цены заказов' }
+  }
+}
+
+export async function batchDeleteOrdersAction(orderIds: string[]) {
+  try {
+    const currentUserId = await checkManagerOrAbove()
+    const profile = await prisma.profile.findUnique({ where: { id: currentUserId } })
+    if (!profile || !['admin', 'owner'].includes(profile.role)) {
+      return { error: 'Недостаточно прав для удаления заказов' }
+    }
+
+    const validatedOrderIds = batchOrderIdsSchema.parse(orderIds)
+    const orders = await prisma.order.findMany({
+      where: { id: { in: validatedOrderIds } },
+      select: { id: true, number: true, clientId: true },
+    })
+    if (orders.length === 0) {
+      return { error: 'Выбранные заказы не найдены' }
+    }
+
+    const existingOrderIds = orders.map(order => order.id)
+    const affectedClientIds = [...new Set(orders.map(order => order.clientId))]
+
+    await prisma.$transaction(async tx => {
+      await tx.orderItem.deleteMany({ where: { orderId: { in: existingOrderIds } } })
+      await tx.auditLog.deleteMany({ where: { entityType: 'order', entityId: { in: existingOrderIds } } })
+      await tx.order.deleteMany({ where: { id: { in: existingOrderIds } } })
+
+      for (const clientId of affectedClientIds) {
+        const remainingOrders = await tx.order.count({ where: { clientId } })
+        if (remainingOrders === 0) {
+          await tx.client.delete({ where: { id: clientId } })
+        }
+      }
+
+      await tx.auditLog.createMany({
+        data: orders.map(order => ({
+          userId: currentUserId,
+          entityType: 'order',
+          entityId: order.id,
+          action: 'batch_delete_order',
+          comment: `Заказ ${order.number ? `№${order.number}` : `#${order.id.slice(-6).toUpperCase()}`} удалён в пакетном режиме`,
+        })),
+      })
+    })
+
+    await prisma.$executeRawUnsafe(`
+      SELECT setval(
+        'orders_number_seq',
+        COALESCE((SELECT MAX(number::INT) FROM orders WHERE number ~ '^[0-9]+$'), 0) + 1,
+        false
+      );
+    `)
+
+    revalidatePath('/orders')
+    revalidatePath('/payroll')
+    revalidatePath('/dashboard')
+    return { success: true, deletedCount: orders.length }
+  } catch (error: unknown) {
+    return { error: error instanceof Error ? error.message : 'Ошибка при пакетном удалении заказов' }
+  }
+}
+
 export async function updateOrderFeedbackAction(
   orderId: string,
   feedbackType: string,

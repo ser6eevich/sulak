@@ -10,6 +10,8 @@ import {
   searchClientByPhoneAction,
   getOrderAuditLogsAction,
   deleteOrderAction,
+  batchDeleteOrdersAction,
+  batchUpdateOrdersNewPriceAction,
   updateOrderFeedbackAction,
   updateOrderImageAction,
   findOrdersForBatchDeliveryAction,
@@ -234,6 +236,9 @@ export default function OrderManagement({
   const [search, setSearch] = useState(initialQuery)
   const [statusFilter, setStatusFilter] = useState(initialStatus)
   const [loading, setLoading] = useState<string | null>(null)
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set())
+  const [bulkActionLoading, setBulkActionLoading] = useState(false)
+  const [bulkActionError, setBulkActionError] = useState('')
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => setOrders(initialOrders), 0)
@@ -255,6 +260,8 @@ export default function OrderManagement({
     else params.delete('page')
     if (nextPageSize !== 20) params.set('pageSize', String(nextPageSize))
     else params.delete('pageSize')
+    setSelectedOrderIds(new Set())
+    setBulkActionError('')
     router.push(`/orders${params.size ? `?${params.toString()}` : ''}`)
   }
 
@@ -1022,6 +1029,61 @@ export default function OrderManagement({
   })
 
   const paginatedOrders = sortedOrders
+  const canBatchUpdateNewPrice = ['admin', 'owner', 'manager'].includes(userRole)
+  const canBatchDelete = ['admin', 'owner'].includes(userRole)
+  const selectedOrdersCount = selectedOrderIds.size
+  const allVisibleOrdersSelected = paginatedOrders.length > 0 && paginatedOrders.every(order => selectedOrderIds.has(order.id))
+
+  const toggleOrderSelection = (orderId: string) => {
+    setSelectedOrderIds(previous => {
+      const next = new Set(previous)
+      if (next.has(orderId)) next.delete(orderId)
+      else next.add(orderId)
+      return next
+    })
+  }
+
+  const toggleVisibleOrdersSelection = () => {
+    setSelectedOrderIds(previous => {
+      if (allVisibleOrdersSelected) return new Set()
+      return new Set([...previous, ...paginatedOrders.map(order => order.id)])
+    })
+  }
+
+  const handleBatchNewPrice = async (isNewPrice: boolean) => {
+    if (selectedOrdersCount === 0) return
+
+    setBulkActionLoading(true)
+    setBulkActionError('')
+    const result = await batchUpdateOrdersNewPriceAction(Array.from(selectedOrderIds), isNewPrice)
+    setBulkActionLoading(false)
+
+    if (result.error) {
+      setBulkActionError(result.error)
+      return
+    }
+
+    setSelectedOrderIds(new Set())
+    router.refresh()
+  }
+
+  const handleBatchDelete = async () => {
+    if (selectedOrdersCount === 0) return
+    if (!window.confirm(`Удалить выбранные заказы (${selectedOrdersCount} шт.)? Это действие необратимо.`)) return
+
+    setBulkActionLoading(true)
+    setBulkActionError('')
+    const result = await batchDeleteOrdersAction(Array.from(selectedOrderIds))
+    setBulkActionLoading(false)
+
+    if (result.error) {
+      setBulkActionError(result.error)
+      return
+    }
+
+    setSelectedOrderIds(new Set())
+    router.refresh()
+  }
 
   // Быстрые статистики для панели сверху
   const totalActive = summary.active
@@ -1219,12 +1281,71 @@ export default function OrderManagement({
         )}
       </div>
 
+      {canBatchUpdateNewPrice && selectedOrdersCount > 0 && (
+        <section className="erp-card flex flex-col gap-3 border-[var(--accent-primary)]/30 bg-[var(--accent-soft)] p-3 sm:flex-row sm:items-center sm:justify-between" aria-label="Массовые действия с заказами">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-[var(--text-primary)]">Выбрано заказов: {selectedOrdersCount}</p>
+            <p className="mt-0.5 text-[10px] text-[var(--text-secondary)]">Действие применяется ко всем выбранным заказам.</p>
+            {bulkActionError && <p className="mt-1 text-[10px] font-medium text-[var(--danger)]">{bulkActionError}</p>}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleBatchNewPrice(true)}
+              disabled={bulkActionLoading}
+              className="erp-button-primary inline-flex min-h-9 items-center justify-center whitespace-nowrap px-3 text-[10px] disabled:opacity-50"
+            >
+              Поставить «Новая цена»
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleBatchNewPrice(false)}
+              disabled={bulkActionLoading}
+              className="erp-button-secondary inline-flex min-h-9 items-center justify-center whitespace-nowrap px-3 text-[10px] disabled:opacity-50"
+            >
+              Убрать новую цену
+            </button>
+            {canBatchDelete && (
+              <button
+                type="button"
+                onClick={() => void handleBatchDelete()}
+                disabled={bulkActionLoading}
+                className="inline-flex min-h-9 items-center justify-center whitespace-nowrap rounded-lg border border-[var(--danger)]/30 px-3 text-[10px] font-medium text-[var(--danger)] transition-colors hover:bg-[var(--danger-soft)] disabled:opacity-50"
+              >
+                Удалить
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setSelectedOrderIds(new Set())}
+              disabled={bulkActionLoading}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-surface-hover)] disabled:opacity-50"
+              aria-label="Снять выделение заказов"
+              title="Снять выделение"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </section>
+      )}
+
       {/* Список заказов в виде таблицы */}
       <div className="erp-card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1080px] border-collapse text-left text-xs">
             <thead>
               <tr className="border-b border-[var(--border-primary)] bg-[var(--bg-table-header)] text-[9px] font-medium uppercase tracking-[0.1em] text-[var(--text-tertiary)]">
+                {canBatchUpdateNewPrice && (
+                  <th className="w-11 px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleOrdersSelected}
+                      onChange={toggleVisibleOrdersSelection}
+                      aria-label="Выбрать все заказы на странице"
+                      className="h-3.5 w-3.5 rounded border-[var(--border-primary)] text-[var(--accent-primary)] focus:ring-[var(--accent-primary)]"
+                    />
+                  </th>
+                )}
                 <th className="px-4 py-2.5">Заказ</th>
                 <th className="px-4 py-2.5">Клиент</th>
                 <th className="px-4 py-2.5">Состав</th>
@@ -1237,7 +1358,7 @@ export default function OrderManagement({
             <tbody className="divide-y divide-[var(--border-primary)] text-[var(--text-primary)] font-normal">
               {paginatedOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center">
+                  <td colSpan={canBatchUpdateNewPrice ? 8 : 7} className="px-4 py-12 text-center">
                     <div className="flex flex-col items-center">
                       <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--bg-surface-hover)] text-[var(--text-tertiary)]">
                         <ShoppingCart className="h-[18px] w-[18px]" strokeWidth={1.6} />
@@ -1275,8 +1396,19 @@ export default function OrderManagement({
                           openOrderDetails(order)
                         }
                       }}
-                      className="cursor-pointer transition-colors hover:bg-[var(--bg-table-row-hover)] focus-visible:bg-[var(--accent-soft)] focus-visible:outline-none"
+                      className={`cursor-pointer transition-colors hover:bg-[var(--bg-table-row-hover)] focus-visible:bg-[var(--accent-soft)] focus-visible:outline-none ${selectedOrderIds.has(order.id) ? 'bg-[var(--accent-soft)]' : ''}`}
                     >
+                      {canBatchUpdateNewPrice && (
+                        <td className="px-3 py-2.5" onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedOrderIds.has(order.id)}
+                            onChange={() => toggleOrderSelection(order.id)}
+                            aria-label={`Выбрать заказ ${order.number || shortId}`}
+                            className="h-3.5 w-3.5 rounded border-[var(--border-primary)] text-[var(--accent-primary)] focus:ring-[var(--accent-primary)]"
+                          />
+                        </td>
+                      )}
                       <td className="px-4 py-2.5">
                         <span className="font-mono text-[11px] font-semibold text-[var(--text-primary)]">
                           {order.number ? `№${order.number}` : `#${shortId}`}
