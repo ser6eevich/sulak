@@ -45,7 +45,11 @@ interface ManagerReport {
   details: {
     currentDelivered: {
       id: string
+      orderId: string
       number?: string | null
+      subOrderIndex: number
+      subOrderCount: number
+      orderPayoutTotal: number
       createdAt: string | Date
       deliveredAt: string | Date
       isNewPrice: boolean
@@ -53,7 +57,11 @@ interface ManagerReport {
     }[]
     pastDelivered: {
       id: string
+      orderId: string
       number?: string | null
+      subOrderIndex: number
+      subOrderCount: number
+      orderPayoutTotal: number
       createdAt: string | Date
       deliveredAt: string | Date
       historicalRate: number
@@ -96,7 +104,7 @@ export default function PayrollClient() {
 
     const currentDeliveredRows = report.details.currentDelivered.map(o => `
       <tr>
-        <td style="padding: 6px; border-right: 1px solid #cbd5e1; font-family: monospace; font-weight: 600;">Заказ №${o.number ?? o.id.slice(-6).toUpperCase()}</td>
+        <td style="padding: 6px; border-right: 1px solid #cbd5e1; font-family: monospace; font-weight: 600;">Заказ №${o.number ?? o.id.slice(-6).toUpperCase()}${o.subOrderCount > 1 ? `<br><span style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 10px; font-weight: 500; color: #475569;">Подзаказ ${o.subOrderIndex + 1} из ${o.subOrderCount} · за заказ: ${o.orderPayoutTotal.toLocaleString('ru-RU')} ₽</span>` : ''}</td>
         <td style="padding: 6px; border-right: 1px solid #cbd5e1; color: #475569;">${new Date(o.createdAt).toLocaleDateString('ru-RU')}</td>
         <td style="padding: 6px; border-right: 1px solid #cbd5e1; color: #475569;">${new Date(o.deliveredAt).toLocaleDateString('ru-RU')}</td>
         <td style="padding: 6px; text-align: right; font-weight: 500;">${o.payoutRate} ₽${o.isNewPrice ? ' (новая цена)' : ''}</td>
@@ -105,7 +113,7 @@ export default function PayrollClient() {
 
     const pastDeliveredRows = report.details.pastDelivered.map(o => `
       <tr>
-        <td style="padding: 6px; border-right: 1px solid #cbd5e1; font-family: monospace; font-weight: 600;">Заказ №${o.number ?? o.id.slice(-6).toUpperCase()}</td>
+        <td style="padding: 6px; border-right: 1px solid #cbd5e1; font-family: monospace; font-weight: 600;">Заказ №${o.number ?? o.id.slice(-6).toUpperCase()}${o.subOrderCount > 1 ? `<br><span style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 10px; font-weight: 500; color: #475569;">Подзаказ ${o.subOrderIndex + 1} из ${o.subOrderCount} · за заказ: ${o.orderPayoutTotal.toLocaleString('ru-RU')} ₽</span>` : ''}</td>
         <td style="padding: 6px; border-right: 1px solid #cbd5e1; color: #475569;">${new Date(o.createdAt).toLocaleDateString('ru-RU')}</td>
         <td style="padding: 6px; border-right: 1px solid #cbd5e1; color: #475569;">${new Date(o.deliveredAt).toLocaleDateString('ru-RU')}</td>
         <td style="padding: 6px; border-right: 1px solid #cbd5e1; text-align: center;">${o.pastPeriodTotalOrders} шт</td>
@@ -653,7 +661,14 @@ export default function PayrollClient() {
                             ) : (
                               report.details.currentDelivered.map(o => (
                                 <tr key={o.id} className="hover:bg-[var(--bg-table-row-hover)] transition-colors">
-                                  <td className="p-2.5 pl-4 font-mono font-medium text-[var(--text-primary)]">Заказ №{o.number ?? o.id.slice(-6).toUpperCase()}</td>
+                                  <td className="p-2.5 pl-4">
+                                    <div className="font-mono font-medium text-[var(--text-primary)]">Заказ №{o.number ?? o.id.slice(-6).toUpperCase()}</div>
+                                    {o.subOrderCount > 1 && (
+                                      <div className="mt-1 text-[10px] font-medium text-[var(--text-secondary)]">
+                                        Подзаказ {o.subOrderIndex + 1} из {o.subOrderCount} · за заказ: {o.orderPayoutTotal.toLocaleString('ru-RU')} ₽
+                                      </div>
+                                    )}
+                                  </td>
                                   <td className="p-2.5 text-[var(--text-tertiary)]">{new Date(o.createdAt).toLocaleDateString('ru-RU')}</td>
                                   <td className="p-2.5 text-[var(--text-tertiary)]">{new Date(o.deliveredAt).toLocaleDateString('ru-RU')}</td>
                                   <td className="p-2.5 text-right pr-4 font-semibold text-[var(--accent-primary)]">
@@ -692,7 +707,14 @@ export default function PayrollClient() {
                             ) : (
                               report.details.pastDelivered.map(o => (
                                 <tr key={o.id} className="hover:bg-[var(--bg-table-row-hover)] transition-colors">
-                                  <td className="p-2.5 pl-4 font-mono font-medium text-[var(--text-primary)]">Заказ №{o.number ?? o.id.slice(-6).toUpperCase()}</td>
+                                  <td className="p-2.5 pl-4">
+                                    <div className="font-mono font-medium text-[var(--text-primary)]">Заказ №{o.number ?? o.id.slice(-6).toUpperCase()}</div>
+                                    {o.subOrderCount > 1 && (
+                                      <div className="mt-1 text-[10px] font-medium text-[var(--text-secondary)]">
+                                        Подзаказ {o.subOrderIndex + 1} из {o.subOrderCount} · за заказ: {o.orderPayoutTotal.toLocaleString('ru-RU')} ₽
+                                      </div>
+                                    )}
+                                  </td>
                                   <td className="p-2.5 text-[var(--text-tertiary)]">{new Date(o.createdAt).toLocaleDateString('ru-RU')}</td>
                                   <td className="p-2.5 text-[var(--text-tertiary)]">{new Date(o.deliveredAt).toLocaleDateString('ru-RU')}</td>
                                   <td className="p-2.5 text-center text-[var(--text-secondary)] font-medium">{o.pastPeriodTotalOrders} шт</td>

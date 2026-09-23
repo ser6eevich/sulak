@@ -136,13 +136,29 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
         }
       }
       const currentDeliveredCount = currentDeliveredMap.size
-      const currentDeliveredCalculated = Array.from(currentDeliveredMap.values()).map(item => ({
+      const currentDeliveredEntries = Array.from(currentDeliveredMap.values())
+      const currentSubOrderCounts = new Map<string, number>()
+      for (const item of currentDeliveredEntries) {
+        currentSubOrderCounts.set(item.orderId, (currentSubOrderCounts.get(item.orderId) ?? 0) + 1)
+      }
+      const currentDeliveredWithoutTotals = currentDeliveredEntries.map(item => ({
         id: `${item.orderId}-${item.subOrderIndex}`,
+        orderId: item.orderId,
         number: item.order.number,
+        subOrderIndex: item.subOrderIndex,
+        subOrderCount: currentSubOrderCounts.get(item.orderId) ?? 1,
         createdAt: item.order.createdAt,
         deliveredAt: item.order.deliveredAt!,
         isNewPrice: item.order.isNewPrice,
         payoutRate: getOrderPayoutRate(totalOrdersCount, item.order.createdAt, item.order.isNewPrice),
+      }))
+      const currentPayoutTotals = new Map<string, number>()
+      for (const item of currentDeliveredWithoutTotals) {
+        currentPayoutTotals.set(item.orderId, (currentPayoutTotals.get(item.orderId) ?? 0) + item.payoutRate)
+      }
+      const currentDeliveredCalculated = currentDeliveredWithoutTotals.map(item => ({
+        ...item,
+        orderPayoutTotal: currentPayoutTotals.get(item.orderId) ?? item.payoutRate,
       }))
       const currentDeliveriesSum = currentDeliveredCalculated.reduce((sum, item) => sum + item.payoutRate, 0)
 
@@ -213,7 +229,9 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
 
         pastDeliveredCalculated.push({
           id: key,
+          orderId: firstItem.orderId,
           number: firstItem.order.number,
+          subOrderIndex: firstItem.subOrderIndex,
           createdAt: firstItem.order.createdAt,
           deliveredAt: firstItem.order.deliveredAt!,
           historicalRate,
@@ -222,6 +240,20 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
           pastPeriodTotalOrders,
         })
       }
+
+      const pastSubOrderCounts = new Map<string, number>()
+      for (const item of pastDeliveredCalculated) {
+        pastSubOrderCounts.set(item.orderId, (pastSubOrderCounts.get(item.orderId) ?? 0) + 1)
+      }
+      const pastPayoutTotals = new Map<string, number>()
+      for (const item of pastDeliveredCalculated) {
+        pastPayoutTotals.set(item.orderId, (pastPayoutTotals.get(item.orderId) ?? 0) + item.payoutRate)
+      }
+      const pastDeliveredWithSummaries = pastDeliveredCalculated.map(item => ({
+        ...item,
+        subOrderCount: pastSubOrderCounts.get(item.orderId) ?? 1,
+        orderPayoutTotal: pastPayoutTotals.get(item.orderId) ?? item.payoutRate,
+      }))
 
       // 4. Бонус относится к периоду, в котором отзыв отметили в CRM, а не к дате доставки заказа.
       const feedbackOrdersInPeriod = await prisma.order.findMany({
@@ -276,7 +308,7 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
         },
         details: {
           currentDelivered: currentDeliveredCalculated,
-          pastDelivered: pastDeliveredCalculated,
+          pastDelivered: pastDeliveredWithSummaries,
           feedbacks,
         },
       })
