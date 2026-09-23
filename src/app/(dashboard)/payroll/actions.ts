@@ -4,7 +4,7 @@ import prisma from '@/lib/prisma'
 import { getFeedbackBonus } from '@/lib/payroll/feedback-bonus'
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
-import { getRateForOrderCount, getPeriodBoundsForDate, getEffectiveDeliveryBounds } from '@/utils/payroll'
+import { getOrderPayoutRate, getRateForOrderCount, getPeriodBoundsForDate, getEffectiveDeliveryBounds } from '@/utils/payroll'
 
 async function checkAdminOrOwner() {
   const supabase = await createClient()
@@ -68,7 +68,7 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
 
       const uniqueSubOrders = new Set(currentPeriodItems.map(it => `${it.orderId}-${it.subOrderIndex}`))
       const totalOrdersCount = uniqueSubOrders.size
-      const currentRate = getRateForOrderCount(totalOrdersCount)
+      const currentRate = getRateForOrderCount(totalOrdersCount, start)
 
       // Дополнительно: считаем абсолютно все созданные подзаказы (включая cancelled) за отчетный период
       const totalCreatedItems = await prisma.orderItem.findMany({
@@ -136,7 +136,15 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
         }
       }
       const currentDeliveredCount = currentDeliveredMap.size
-      const currentDeliveriesSum = currentDeliveredCount * currentRate
+      const currentDeliveredCalculated = Array.from(currentDeliveredMap.values()).map(item => ({
+        id: `${item.orderId}-${item.subOrderIndex}`,
+        number: item.order.number,
+        createdAt: item.order.createdAt,
+        deliveredAt: item.order.deliveredAt!,
+        isNewPrice: item.order.isNewPrice,
+        payoutRate: getOrderPayoutRate(totalOrdersCount, item.order.createdAt, item.order.isNewPrice),
+      }))
+      const currentDeliveriesSum = currentDeliveredCalculated.reduce((sum, item) => sum + item.payoutRate, 0)
 
       // 3. Подзаказы из предыдущих периодов, попавшие в фактическое окно доставок (надбавка).
       const pastDeliveredItems = await prisma.orderItem.findMany({
@@ -195,8 +203,13 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
         })
 
         const pastPeriodTotalOrders = new Set(pastPeriodTotalItems.map(it => `${it.orderId}-${it.subOrderIndex}`)).size
-        const historicalRate = getRateForOrderCount(pastPeriodTotalOrders)
-        pastDeliveriesSum += historicalRate
+        const historicalRate = getRateForOrderCount(pastPeriodTotalOrders, firstItem.order.createdAt)
+        const payoutRate = getOrderPayoutRate(
+          pastPeriodTotalOrders,
+          firstItem.order.createdAt,
+          firstItem.order.isNewPrice
+        )
+        pastDeliveriesSum += payoutRate
 
         pastDeliveredCalculated.push({
           id: key,
@@ -204,6 +217,8 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
           createdAt: firstItem.order.createdAt,
           deliveredAt: firstItem.order.deliveredAt!,
           historicalRate,
+          payoutRate,
+          isNewPrice: firstItem.order.isNewPrice,
           pastPeriodTotalOrders,
         })
       }
@@ -260,12 +275,7 @@ export async function getPayrollDataAction(startDateStr: string, endDateStr: str
           cancelledCount,
         },
         details: {
-          currentDelivered: Array.from(currentDeliveredMap.values()).map(item => ({
-            id: `${item.orderId}-${item.subOrderIndex}`,
-            number: item.order.number,
-            createdAt: item.order.createdAt,
-            deliveredAt: item.order.deliveredAt!,
-          })),
+          currentDelivered: currentDeliveredCalculated,
           pastDelivered: pastDeliveredCalculated,
           feedbacks,
         },

@@ -117,6 +117,7 @@ interface Order {
   feedbackRecordedAt?: Date | string | null
   feedbackAuthor?: string | null
   feedbackUrl?: string | null
+  isNewPrice: boolean
   driverId?: string | null
   driver?: {
     id: string
@@ -288,6 +289,7 @@ export default function OrderManagement({
   const [assemblyPrice, setAssemblyPrice] = useState('0')
   const [comment, setComment] = useState('')
   const [plannedDeliveryDate, setPlannedDeliveryDate] = useState('')
+  const [isNewPrice, setIsNewPrice] = useState(false)
   
   // Ретроспективный ввод прошедших заказов
   const [isRetroactive, setIsRetroactive] = useState(false)
@@ -613,6 +615,7 @@ export default function OrderManagement({
     setAssemblyPrice('0')
     setComment('')
     setPlannedDeliveryDate('')
+    setIsNewPrice(false)
     setSubOrderImages({})
     setIsRetroactive(false)
     setCustomCreatedAt('')
@@ -687,6 +690,7 @@ export default function OrderManagement({
       status: isRetroactive ? customStatus : 'pending',
       paymentStatus: isRetroactive ? customPaymentStatus : 'unpaid',
       plannedDeliveryDate: plannedDeliveryDate ? new Date(plannedDeliveryDate).toISOString() : null,
+      isNewPrice,
       // Собираем JSON из словаря фото: если одно фото - просто URL, если несколько - JSON
       imageUrl: (() => {
         const keys = Object.keys(subOrderImages).filter(k => (subOrderImages[Number(k)] || []).length > 0)
@@ -723,6 +727,7 @@ export default function OrderManagement({
     setComment(order.comment || '')
     setSellerId(order.sellerId || (order.seller ? order.seller.id : currentUserId))
     setPlannedDeliveryDate(order.plannedDeliveryDate ? new Date(order.plannedDeliveryDate).toISOString().slice(0, 10) : '')
+    setIsNewPrice(order.isNewPrice)
     setIsRetroactive(false)
     setCustomCreatedAt(toDateTimeLocalValue(order.createdAt))
     setCustomDeliveredAt(order.deliveredAt ? toDateTimeLocalValue(order.deliveredAt) : '')
@@ -2322,6 +2327,19 @@ export default function OrderManagement({
                         <span className="text-emerald-600 dark:text-emerald-400">{grandTotal.toLocaleString('ru-RU')} ₽</span>
                       </div>
                     </div>
+
+                    <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface-secondary)] px-3 py-2.5">
+                      <input
+                        type="checkbox"
+                        checked={isNewPrice}
+                        onChange={event => setIsNewPrice(event.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded text-brand focus:ring-brand"
+                      />
+                      <span>
+                        <span className="block text-xs font-semibold text-[var(--text-primary)]">Новая цена</span>
+                        <span className="mt-0.5 block text-[10px] leading-4 text-[var(--text-tertiary)]">Удвоить выплату менеджеру за этот заказ.</span>
+                      </span>
+                    </label>
 
                     <div>
                       <label className="erp-label">Комментарий к заказу</label>

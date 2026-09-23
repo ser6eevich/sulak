@@ -1,12 +1,35 @@
 // Чистые утилиты для расчета зарплат и отчетных периодов менеджеров
 
-// Сетка ставок
-export function getRateForOrderCount(count: number): number {
-  if (count < 65) return 850
-  if (count < 80) return 1000
-  if (count < 100) return 1300
-  if (count < 120) return 1700
-  return 2000
+const NEW_PAYROLL_RATE_START = new Date('2026-08-31T21:00:00.000Z') // 1 сентября 2026, 00:00 MSK
+const NEW_PRICE_MULTIPLIER = 2
+
+// Сетка ставок. С 1 сентября 2026 ставки увеличены на 31% и округлены до рубля.
+export function getRateForOrderCount(count: number, orderCreatedAt?: Date | string): number {
+  const baseRate = count < 65
+    ? 850
+    : count < 80
+      ? 1000
+      : count < 100
+        ? 1300
+        : count < 120
+          ? 1700
+          : 2000
+
+  if (!orderCreatedAt || new Date(orderCreatedAt) < NEW_PAYROLL_RATE_START) {
+    return baseRate
+  }
+
+  return Math.round(baseRate * 1.31)
+}
+
+/** Ставка за подзаказ с учётом отметки «Новая цена». */
+export function getOrderPayoutRate(
+  orderCount: number,
+  orderCreatedAt: Date | string,
+  isNewPrice: boolean
+): number {
+  const rate = getRateForOrderCount(orderCount, orderCreatedAt)
+  return isNewPrice ? rate * NEW_PRICE_MULTIPLIER : rate
 }
 
 // Границы перехода на новую систему расчёта

@@ -45,10 +45,12 @@ const createOrderSchema = z.object({
   paymentStatus: z.string().optional().nullable(),
   imageUrl: z.string().optional().nullable(),
   plannedDeliveryDate: z.string().optional().nullable(),
+  isNewPrice: z.boolean().default(false),
 })
 
 const updateOrderSchema = createOrderSchema.extend({
   orderId: z.string().uuid('Некорректный ID заказа'),
+  isNewPrice: z.boolean().optional(),
 })
 
 const batchOrderNumbersSchema = z.array(z.string().regex(/^\d+$/)).min(1).max(500)
@@ -218,6 +220,7 @@ export async function createOrderAction(data: z.infer<typeof createOrderSchema>)
           deliveredAt: retrospectiveFields?.deliveredAt || null,
           imageUrl: validated.imageUrl,
           plannedDeliveryDate: validated.plannedDeliveryDate ? new Date(validated.plannedDeliveryDate) : null,
+          isNewPrice: validated.isNewPrice,
         },
       })
 
@@ -337,6 +340,7 @@ export async function updateOrderAction(data: z.infer<typeof updateOrderSchema>)
           sellerId: validated.sellerId,
           imageUrl: validated.imageUrl !== undefined ? validated.imageUrl : existingOrder.imageUrl,
           plannedDeliveryDate: validated.plannedDeliveryDate ? new Date(validated.plannedDeliveryDate) : null,
+          isNewPrice: validated.isNewPrice ?? existingOrder.isNewPrice,
           ...(retrospectiveFields ? {
             createdAt: retrospectiveFields.createdAt,
             deliveredAt: retrospectiveFields.deliveredAt,
@@ -379,12 +383,14 @@ export async function updateOrderAction(data: z.infer<typeof updateOrderSchema>)
             discount: existingOrder.discount,
             sellerId: existingOrder.sellerId,
             createdAt: existingOrder.createdAt,
+            isNewPrice: existingOrder.isNewPrice,
           },
           newData: {
             totalPrice,
             discount: discountCents,
             sellerId: validated.sellerId,
             grandTotal: grandTotalCents / 100,
+            isNewPrice: validated.isNewPrice ?? existingOrder.isNewPrice,
             ...(retrospectiveFields ? { createdAt: retrospectiveFields.createdAt } : {}),
           },
           comment: `Отредактированы данные и состав заказа ${orderNumStr}`,

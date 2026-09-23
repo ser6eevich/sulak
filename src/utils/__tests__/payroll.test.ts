@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   generatePayrollPeriods,
   getEffectiveDeliveryBounds,
+  getOrderPayoutRate,
   getRateForOrderCount,
   getPeriodBoundsForDate,
 } from '../payroll'
@@ -35,6 +36,27 @@ describe('Payroll Calculations', () => {
     it('should return 2000 for order count 120 and above', () => {
       expect(getRateForOrderCount(120)).toBe(2000)
       expect(getRateForOrderCount(150)).toBe(2000)
+    })
+  })
+
+  describe('September 2026 rates and new price', () => {
+    const septemberStart = new Date('2026-08-31T21:00:00.000Z')
+
+    it('increases every rate by 31% from September and rounds to whole rubles', () => {
+      expect(getRateForOrderCount(64, septemberStart)).toBe(1114)
+      expect(getRateForOrderCount(65, septemberStart)).toBe(1310)
+      expect(getRateForOrderCount(80, septemberStart)).toBe(1703)
+      expect(getRateForOrderCount(100, septemberStart)).toBe(2227)
+      expect(getRateForOrderCount(120, septemberStart)).toBe(2620)
+    })
+
+    it('preserves the old rates before September', () => {
+      expect(getRateForOrderCount(64, new Date('2026-08-31T20:59:59.999Z'))).toBe(850)
+    })
+
+    it('doubles only orders marked as new price', () => {
+      expect(getOrderPayoutRate(64, septemberStart, false)).toBe(1114)
+      expect(getOrderPayoutRate(64, septemberStart, true)).toBe(2228)
     })
   })
 

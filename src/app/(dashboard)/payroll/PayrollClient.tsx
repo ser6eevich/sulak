@@ -48,6 +48,8 @@ interface ManagerReport {
       number?: string | null
       createdAt: string | Date
       deliveredAt: string | Date
+      isNewPrice: boolean
+      payoutRate: number
     }[]
     pastDelivered: {
       id: string
@@ -55,6 +57,8 @@ interface ManagerReport {
       createdAt: string | Date
       deliveredAt: string | Date
       historicalRate: number
+      isNewPrice: boolean
+      payoutRate: number
       pastPeriodTotalOrders: number
     }[]
     feedbacks: {
@@ -95,7 +99,7 @@ export default function PayrollClient() {
         <td style="padding: 6px; border-right: 1px solid #cbd5e1; font-family: monospace; font-weight: 600;">Заказ №${o.number ?? o.id.slice(-6).toUpperCase()}</td>
         <td style="padding: 6px; border-right: 1px solid #cbd5e1; color: #475569;">${new Date(o.createdAt).toLocaleDateString('ru-RU')}</td>
         <td style="padding: 6px; border-right: 1px solid #cbd5e1; color: #475569;">${new Date(o.deliveredAt).toLocaleDateString('ru-RU')}</td>
-        <td style="padding: 6px; text-align: right; font-weight: 500;">${report.metrics.currentRate} ₽</td>
+        <td style="padding: 6px; text-align: right; font-weight: 500;">${o.payoutRate} ₽${o.isNewPrice ? ' (новая цена)' : ''}</td>
       </tr>
     `).join('')
 
@@ -106,7 +110,7 @@ export default function PayrollClient() {
         <td style="padding: 6px; border-right: 1px solid #cbd5e1; color: #475569;">${new Date(o.deliveredAt).toLocaleDateString('ru-RU')}</td>
         <td style="padding: 6px; border-right: 1px solid #cbd5e1; text-align: center;">${o.pastPeriodTotalOrders} шт</td>
         <td style="padding: 6px; border-right: 1px solid #cbd5e1; text-align: center;">${o.historicalRate} ₽</td>
-        <td style="padding: 6px; text-align: right; font-weight: 500;">${o.historicalRate} ₽</td>
+        <td style="padding: 6px; text-align: right; font-weight: 500;">${o.payoutRate} ₽${o.isNewPrice ? ' (новая цена)' : ''}</td>
       </tr>
     `).join('')
 
@@ -629,7 +633,7 @@ export default function PayrollClient() {
                     <div className="space-y-1.5">
                       <h4 className="font-semibold text-[var(--text-primary)] text-xs flex items-center gap-1.5 uppercase tracking-wider">
                         <ShoppingBag className="h-3.5 w-3.5 text-[var(--accent-primary)]" />
-                        Текущие доставки (по ставке {report.metrics.currentRate} ₽)
+                        Текущие доставки (базовая ставка {report.metrics.currentRate} ₽)
                       </h4>
                       <div className="overflow-x-auto rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface)]">
                         <table className="w-full text-left border-collapse text-xs">
@@ -652,7 +656,9 @@ export default function PayrollClient() {
                                   <td className="p-2.5 pl-4 font-mono font-medium text-[var(--text-primary)]">Заказ №{o.number ?? o.id.slice(-6).toUpperCase()}</td>
                                   <td className="p-2.5 text-[var(--text-tertiary)]">{new Date(o.createdAt).toLocaleDateString('ru-RU')}</td>
                                   <td className="p-2.5 text-[var(--text-tertiary)]">{new Date(o.deliveredAt).toLocaleDateString('ru-RU')}</td>
-                                  <td className="p-2.5 text-right pr-4 font-semibold text-[var(--accent-primary)]">{report.metrics.currentRate} ₽</td>
+                                  <td className="p-2.5 text-right pr-4 font-semibold text-[var(--accent-primary)]">
+                                    {o.payoutRate.toLocaleString('ru-RU')} ₽{o.isNewPrice ? ' · новая цена' : ''}
+                                  </td>
                                 </tr>
                               ))
                             )}
@@ -690,7 +696,9 @@ export default function PayrollClient() {
                                   <td className="p-2.5 text-[var(--text-tertiary)]">{new Date(o.createdAt).toLocaleDateString('ru-RU')}</td>
                                   <td className="p-2.5 text-[var(--text-tertiary)]">{new Date(o.deliveredAt).toLocaleDateString('ru-RU')}</td>
                                   <td className="p-2.5 text-center text-[var(--text-secondary)] font-medium">{o.pastPeriodTotalOrders} шт</td>
-                                  <td className="p-2.5 text-right pr-4 font-semibold text-[var(--accent-primary)]">{o.historicalRate} ₽</td>
+                                  <td className="p-2.5 text-right pr-4 font-semibold text-[var(--accent-primary)]">
+                                    {o.payoutRate.toLocaleString('ru-RU')} ₽{o.isNewPrice ? ' · новая цена' : ''}
+                                  </td>
                                 </tr>
                               ))
                             )}
@@ -911,7 +919,7 @@ export default function PayrollClient() {
                           <td className="p-2 border-r border-slate-100 font-mono font-semibold">Заказ №{o.number ?? o.id.slice(-6).toUpperCase()}</td>
                           <td className="p-2 border-r border-slate-100 text-slate-600">{new Date(o.createdAt).toLocaleDateString('ru-RU')}</td>
                           <td className="p-2 border-r border-slate-100 text-slate-600">{new Date(o.deliveredAt).toLocaleDateString('ru-RU')}</td>
-                          <td className="p-2 text-right font-medium">{statementReport.metrics.currentRate} ₽</td>
+                          <td className="p-2 text-right font-medium">{o.payoutRate} ₽{o.isNewPrice ? ' · новая цена' : ''}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -942,7 +950,7 @@ export default function PayrollClient() {
                           <td className="p-2 border-r border-slate-100 text-slate-600">{new Date(o.deliveredAt).toLocaleDateString('ru-RU')}</td>
                           <td className="p-2 border-r border-slate-100 text-center font-medium">{o.pastPeriodTotalOrders} шт</td>
                           <td className="p-2 border-r border-slate-100 text-center font-medium">{o.historicalRate} ₽</td>
-                          <td className="p-2 text-right font-medium">{o.historicalRate} ₽</td>
+                          <td className="p-2 text-right font-medium">{o.payoutRate} ₽{o.isNewPrice ? ' · новая цена' : ''}</td>
                         </tr>
                       ))}
                     </tbody>

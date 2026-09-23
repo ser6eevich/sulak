@@ -171,6 +171,7 @@ model Order {
   createdBy       String      @map("created_by") @db.Uuid
   plannedDeliveryDate DateTime?   @map("planned_delivery_date") @db.Timestamptz
   staleAlertStatus    String?     @map("stale_alert_status")
+  isNewPrice          Boolean     @default(false) @map("is_new_price")
   createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime    @default(now()) @map("updated_at") @db.Timestamptz
 
