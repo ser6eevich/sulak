@@ -75,6 +75,8 @@ const TELEGRAM_RETRY_INITIAL_DELAY_MS = 5 * 60 * 1000
 const TELEGRAM_RETRY_MAX_DELAY_MS = 6 * 60 * 60 * 1000
 // Telegram сначала забирает прикреплённое фото по URL; для S3 это может занять дольше обычного запроса.
 const TELEGRAM_MEDIA_REQUEST_TIMEOUT_MS = 45_000
+const TELEGRAM_PHOTO_DOWNLOAD_TIMEOUT_MS = 20_000
+const TELEGRAM_PHOTO_MAX_SIZE_BYTES = 10 * 1024 * 1024
 
 type PendingTelegramOrderDelivery = {
   orderId: string
@@ -225,6 +227,91 @@ async function sendTelegramTextMessage({
   }
 
   return body.result
+}
+
+type DownloadedOrderPhoto = {
+  blob: Blob
+  filename: string
+}
+
+/**
+ * Telegram иногда не может получить файл по S3 URL, хотя URL публичный.
+ * Скачиваем только из нашего S3-домена: это не даёт данным заказа превратить
+ * сервер в произвольный HTTP-клиент.
+ */
+async function downloadOrderPhotoFromTrustedStorage(photoUrl: string): Promise<DownloadedOrderPhoto | null> {
+  let url: URL
+  try {
+    url = new URL(photoUrl)
+  } catch {
+    return null
+  }
+
+  if (url.protocol !== 'https:' || !url.hostname.endsWith('.s3.twcstorage.ru')) {
+    return null
+  }
+
+  try {
+    const response = await fetch(url.toString(), {
+      signal: AbortSignal.timeout(TELEGRAM_PHOTO_DOWNLOAD_TIMEOUT_MS),
+    })
+    if (!response.ok) return null
+
+    const contentType = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase()
+    const contentLength = Number(response.headers.get('content-length'))
+    if (!contentType?.startsWith('image/') || (Number.isFinite(contentLength) && contentLength > TELEGRAM_PHOTO_MAX_SIZE_BYTES)) {
+      return null
+    }
+
+    const bytes = await response.arrayBuffer()
+    if (bytes.byteLength === 0 || bytes.byteLength > TELEGRAM_PHOTO_MAX_SIZE_BYTES) return null
+
+    const originalName = url.pathname.split('/').pop()?.replace(/[^a-zA-Z0-9._-]/g, '')
+    return {
+      blob: new Blob([bytes], { type: contentType }),
+      filename: originalName || 'order-photo.jpg',
+    }
+  } catch (error) {
+    console.warn('Не удалось скачать фото заказа из S3 для Telegram:', error)
+    return null
+  }
+}
+
+async function sendTelegramPhotoFile({
+  token,
+  chatId,
+  photoUrl,
+  text,
+}: {
+  token: string
+  chatId: string
+  photoUrl: string
+  text: string
+}) {
+  const photo = await downloadOrderPhotoFromTrustedStorage(photoUrl)
+  if (!photo) return null
+
+  const form = new FormData()
+  form.append('chat_id', chatId)
+  form.append('caption', text)
+  form.append('parse_mode', 'HTML')
+  form.append('photo', photo.blob, photo.filename)
+
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(TELEGRAM_MEDIA_REQUEST_TIMEOUT_MS),
+    })
+    const body = await readTelegramResponse<TelegramMessage>(response)
+    if (response.ok && body.ok && body.result) return body.result
+
+    console.warn('Telegram sendPhoto с загрузкой файла не прошёл:', body.description || response.statusText)
+  } catch (error) {
+    console.warn('Ошибка отправки файла-фото в Telegram:', error)
+  }
+
+  return null
 }
 
 async function editOrderTelegramMessage({
@@ -659,9 +746,23 @@ async function sendOrderTelegramNotificationAttempt(
           }
         } else {
           console.warn(
-            'Telegram sendPhoto не прошёл, отправляем sendMessage. Причина:',
+            'Telegram sendPhoto по URL не прошёл, пробуем загрузить файл. Причина:',
             photoBody.description || photoRes.statusText
           )
+          const photoMessage = await sendTelegramPhotoFile({
+            token,
+            chatId,
+            photoUrl: photoUrls[0],
+            text: textMessage,
+          })
+          if (photoMessage) {
+            sentWithPhoto = true
+            sentMessageReference = {
+              chatId,
+              messageId: photoMessage.message_id,
+              kind: 'photo',
+            }
+          }
         }
       } catch (photoErr) {
         console.warn('Ошибка при отправке sendPhoto в Telegram:', photoErr)

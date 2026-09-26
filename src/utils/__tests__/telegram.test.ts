@@ -248,6 +248,31 @@ describe('Telegram order message synchronization', () => {
     }))
   })
 
+  it('uploads an S3 photo as a file when Telegram cannot fetch its public URL', async () => {
+    prismaMock.order.findUnique.mockResolvedValue(
+      orderFixture(JSON.stringify({ order_0: ['https://stoly.s3.twcstorage.ru/order.jpg'] }))
+    )
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(telegramResponse({ ok: false, description: 'Bad Request: failed to get HTTP URL content' }, 400))
+      .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), {
+        headers: { 'Content-Type': 'image/jpeg', 'Content-Length': '3' },
+      }))
+      .mockResolvedValueOnce(telegramResponse({ ok: true, result: { message_id: 203 } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await sendOrderTelegramNotification(orderId, 'new_order')
+
+    expect(fetchMock.mock.calls[0][0]).toContain('/sendPhoto')
+    expect(fetchMock.mock.calls[1][0]).toBe('https://stoly.s3.twcstorage.ru/order.jpg')
+    expect(fetchMock.mock.calls[2][0]).toContain('/sendPhoto')
+    expect(fetchMock.mock.calls[2][1].body).toBeInstanceOf(FormData)
+    expect(prismaMock.systemSetting.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        value: JSON.stringify({ chatId: '-1001234567890', messageId: 203, kind: 'photo' }),
+      }),
+    }))
+  })
+
   it('does not duplicate a new order that already has a Telegram message', async () => {
     prismaMock.systemSetting.findUnique.mockResolvedValue({
       value: JSON.stringify({ chatId: '-1001234567890', messageId: 202, kind: 'text' }),
