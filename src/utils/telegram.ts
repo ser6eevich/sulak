@@ -71,7 +71,9 @@ type TelegramApiResponse<T> = {
 
 const ORDER_TELEGRAM_MESSAGE_KEY_PREFIX = 'order_telegram_message_'
 const ORDER_TELEGRAM_RETRY_KEY_PREFIX = 'order_telegram_retry_'
-const TELEGRAM_RETRY_INITIAL_DELAY_MS = 5 * 60 * 1000
+// Крон проверяет очередь раз в минуту: сетевой сбой не должен оставлять новый
+// заказ без карточки в Telegram на несколько минут.
+const TELEGRAM_RETRY_INITIAL_DELAY_MS = 60 * 1000
 const TELEGRAM_RETRY_MAX_DELAY_MS = 6 * 60 * 60 * 1000
 // Telegram сначала забирает прикреплённое фото по URL; для S3 это может занять дольше обычного запроса.
 const TELEGRAM_MEDIA_REQUEST_TIMEOUT_MS = 45_000
