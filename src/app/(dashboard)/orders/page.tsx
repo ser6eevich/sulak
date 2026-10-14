@@ -35,14 +35,18 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
   const exactOrderNumber = parseExactOrderNumberQuery(query)
   const phoneSearchQuery = normalizePhoneSearchQuery(query)
   const requestedStatus = typeof params.status === 'string' ? params.status : 'all'
-  const allowedStatuses = ['pending', 'confirmed', 'production', 'warehouse', 'awaiting_delivery', 'delivery', 'delivered', 'cancelled']
+  const allowedStatuses = ['all', 'not_delivered', 'pending', 'confirmed', 'production', 'warehouse', 'awaiting_delivery', 'delivery', 'delivered', 'cancelled']
   const status = allowedStatuses.includes(requestedStatus) ? requestedStatus : 'all'
   const requestedPageSize = Number(typeof params.pageSize === 'string' ? params.pageSize : 20)
   const pageSize = [10, 20, 50].includes(requestedPageSize) ? requestedPageSize : 20
   const requestedPage = Math.max(1, Number(typeof params.page === 'string' ? params.page : 1) || 1)
 
   const where: Prisma.OrderWhereInput = {
-    ...(status !== 'all' ? { status } : {}),
+    ...(status === 'not_delivered'
+      ? { status: { notIn: ['delivered', 'cancelled'] } }
+      : status !== 'all'
+        ? { status }
+        : {}),
     ...(query
       ? exactOrderNumber
         ? { number: exactOrderNumber }

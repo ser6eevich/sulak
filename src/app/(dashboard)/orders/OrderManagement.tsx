@@ -1222,6 +1222,7 @@ export default function OrderManagement({
             className="erp-input h-10 w-full cursor-pointer !rounded-xl font-medium md:w-56"
           >
             <option value="all">Все статусы выполнения</option>
+            <option value="not_delivered">Не доставлены</option>
             {Object.entries(STATUSES).map(([key, value]) => (
               <option key={key} value={key}>{value.label}</option>
             ))}
