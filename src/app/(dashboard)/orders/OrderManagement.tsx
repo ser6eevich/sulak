@@ -1133,6 +1133,25 @@ export default function OrderManagement({
             <p className="mt-0.5 text-[10px] text-[var(--text-tertiary)]">Текущая загрузка по статусам</p>
           </div>
           <div className="erp-scrollbar-hidden flex min-w-0 flex-1 flex-nowrap gap-1 overflow-x-auto">
+            <button
+              type="button"
+              aria-pressed={statusFilter === 'not_delivered'}
+              onClick={() => {
+                const isActive = statusFilter === 'not_delivered'
+                setStatusFilter(isActive ? 'all' : 'not_delivered')
+                navigateList({ status: isActive ? 'all' : 'not_delivered', page: 1 })
+              }}
+              className={`inline-flex min-h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg border px-2 text-[9px] font-medium transition-colors ${
+                statusFilter === 'not_delivered'
+                  ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)] text-white'
+                  : 'border-[var(--border-primary)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-hover)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <span>Не доставлены</span>
+              <span className={`rounded-md px-1 py-0.5 tabular-nums ${statusFilter === 'not_delivered' ? 'bg-white/15' : 'bg-[var(--bg-surface-hover)] text-[var(--text-tertiary)]'}`}>
+                {summary.active}
+              </span>
+            </button>
             {Object.entries(STATUSES).map(([key, value]) => {
               const isActive = statusFilter === key
               return (
